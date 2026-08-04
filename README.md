@@ -4,18 +4,23 @@
 
 将 PDF、Word、Excel、PPT、网页、Jupyter 笔记本、ZIP 压缩包等常见格式转换为 Markdown，便于阅读、检索与后续处理。
 
+- **项目主页：** https://github.com/wluser3362203440/doc2md  
+- **详细使用说明：** [docs/使用说明.md](docs/使用说明.md)
+
 ---
 
 ## 下载安装（推荐）
 
 无需安装 Python，下载 exe 即可使用。
 
-👉 **最新版下载地址：[Releases 发布页](https://github.com/wluser3362203440/doc2md/releases/latest)**
+👉 **最新版下载（Releases）：** https://github.com/wluser3362203440/doc2md/releases/latest
 
 | 文件 | 大小约 | 用途 |
 |------|--------|------|
 | **文档转Markdown.exe** | 350 MB | 图形界面，双击打开，适合日常办公 |
 | **doc2md-cli.exe** | 350 MB | 命令行，适合批量转换、脚本、管道 |
+
+📄 图文说明见：[docs/使用说明.md](docs/使用说明.md)
 
 **使用步骤：**
 
