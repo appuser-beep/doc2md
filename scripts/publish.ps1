@@ -1,58 +1,105 @@
-# 一键发布到 GitHub（需先完成登录，见下方说明）
+# 一键发布到 GitHub（源码 + Release 附件）
 # 用法：在仓库根目录执行 .\scripts\publish.ps1
+#
+# 首次使用前请先登录 GitHub（二选一）：
+#   1) gh auth login
+#   2) $env:GITHUB_TOKEN = "Personal Access Token"  （需 repo 权限）
 
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
 $version = "v1.7.2"
+$repo = "wluser3362203440/doc2md"
+
 Write-Host "=== 文档转 Markdown 发布脚本 ===" -ForegroundColor Cyan
 Write-Host "版本: $version"
 Write-Host ""
 
-# 1. 检查 gh
-$gh = Get-Command gh -ErrorAction SilentlyContinue
-if (-not $gh) {
+function Find-Gh {
+    $cmd = Get-Command gh -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    $local = Join-Path $PSScriptRoot "..\tools\gh\bin\gh.exe"
+    if (Test-Path $local) { return (Resolve-Path $local).Path }
+    return $null
+}
+
+$ghPath = Find-Gh
+if (-not $ghPath) {
     Write-Host "未检测到 GitHub CLI (gh)。" -ForegroundColor Yellow
-    Write-Host "请先安装: winget install GitHub.cli"
-    Write-Host "然后登录: gh auth login"
+    Write-Host "请运行: .\scripts\install-gh.ps1"
+    Write-Host "然后:   .\tools\gh\bin\gh.exe auth login"
     exit 1
 }
 
-# 2. 检查登录
-gh auth status 2>$null
+Write-Host "使用 gh: $ghPath"
+
+if ($env:GITHUB_TOKEN) {
+    $env:GITHUB_TOKEN | & $ghPath auth login --with-token 2>$null
+}
+
+& $ghPath auth status 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "请先登录 GitHub: gh auth login" -ForegroundColor Yellow
+    Write-Host "或设置环境变量 GITHUB_TOKEN（Personal Access Token，需 repo 权限）"
     exit 1
 }
 
-# 3. 创建仓库（若不存在）
-$repo = "wluser3362203440/doc2md"
-gh repo view $repo 2>$null
+& $ghPath repo view $repo 2>$null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "创建仓库 $repo ..."
-    gh repo create $repo --public --source=. --remote=origin --description "文档转 Markdown — Windows 桌面工具 v1.7.2"
+    Write-Host "创建仓库 https://github.com/$repo ..."
+    & $ghPath repo create $repo --public --source=. --remote=origin `
+        --description "文档转 Markdown — Windows 工具，PDF/Word/Excel/PPT 等转 Markdown"
 }
 
-# 4. 推送代码
-Write-Host "推送代码..."
+Write-Host "推送源码..."
 git push -u origin main
-git tag -a $version -m "Release $version" -f
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "git push 失败。请确认已登录且仓库权限正确。" -ForegroundColor Red
+    exit 1
+}
+
+git tag -a $version -m "Release $version" -f 2>$null
 git push origin $version --force
 
-# 5. 打包 exe（若 dist 不存在）
 if (-not (Test-Path "dist\doc2md-cli.exe")) {
     Write-Host "正在打包 exe（约 5–8 分钟）..."
+    if (-not (Test-Path ".venv\Scripts\pyinstaller.exe")) {
+        .\.venv\Scripts\pip.exe install pyinstaller
+    }
     .\.venv\Scripts\pyinstaller.exe build.spec --noconfirm
 }
 
-# 6. 创建 Release 并上传附件
+if (-not (Test-Path "dist\doc2md-cli.exe")) {
+    Write-Host "未找到 dist\doc2md-cli.exe，无法上传 Release 附件。" -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "创建 Release 并上传 exe..."
-gh release create $version `
-    "dist\文档转Markdown.exe" `
-    "dist\doc2md-cli.exe" `
-    --title "文档转 Markdown $version" `
-    --notes "Windows 桌面版 + 命令行版。详见 README 与 docs/使用说明.md。" `
-    --latest
+$notes = @"
+文档转 Markdown $version
+
+## 下载（Windows 免安装）
+
+| 文件 | 说明 |
+|------|------|
+| 文档转Markdown.exe | 图形界面 |
+| doc2md-cli.exe | 命令行（管道、批量） |
+
+详细用法见仓库 docs/使用说明.md
+"@
+
+& $ghPath release view $version 2>$null
+if ($LASTEXITCODE -eq 0) {
+    & $ghPath release upload $version "dist\文档转Markdown.exe" "dist\doc2md-cli.exe" --clobber
+    & $ghPath release edit $version --notes $notes
+} else {
+    & $ghPath release create $version `
+        "dist\文档转Markdown.exe" `
+        "dist\doc2md-cli.exe" `
+        --title "文档转 Markdown $version" `
+        --notes $notes `
+        --latest
+}
 
 Write-Host ""
 Write-Host "完成！" -ForegroundColor Green
