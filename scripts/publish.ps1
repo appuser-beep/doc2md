@@ -39,8 +39,10 @@ if ($env:GITHUB_TOKEN) {
 
 & $ghPath auth status 2>$null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "请先登录 GitHub: gh auth login" -ForegroundColor Yellow
-    Write-Host "或设置环境变量 GITHUB_TOKEN（Personal Access Token，需 repo 权限）"
+    Write-Host "未登录 GitHub。" -ForegroundColor Yellow
+    Write-Host "请先执行: .\tools\gh\bin\gh.exe auth login"
+    Write-Host "完成后再运行: .\scripts\publish.ps1"
+    Write-Host "详见: scripts\发布说明.md"
     exit 1
 }
 

@@ -24,13 +24,12 @@ def format_plugin_list() -> str:
     if not plugins:
         lines.append("  （无）")
         lines.append("")
-        lines.append("可在 GitHub 搜索 #markitdown-plugin 查找更多插件。")
-        lines.append("本工具已集成 markitdown-ocr：请在「大模型设置」中启用 OCR 插件。")
+        lines.append("可在「大模型设置」中启用 OCR 插件。")
     else:
         for name, value in plugins:
             lines.append(f"  · {name:<16}  {value}")
         lines.append("")
-        lines.append("OCR 插件：「大模型设置」→ 启用 OCR 插件。")
+        lines.append("启用 OCR：「大模型设置」→ 启用 OCR 插件。")
         lines.append("命令行查看：doc2md-cli --list-plugins")
     return "\n".join(lines)
 

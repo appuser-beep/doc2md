@@ -459,7 +459,7 @@ class App(ctk.CTk):
         plugins_var = tk.BooleanVar(value=cur.enable_plugins)
         ctk.CTkCheckBox(
             frame,
-            text="启用 OCR 插件（PDF/Office 内嵌图文字识别，需安装 markitdown-ocr）",
+            text="启用 OCR 插件（PDF / Office 内嵌图文字识别）",
             variable=plugins_var,
             font=font,
             text_color=COLORS["text"],

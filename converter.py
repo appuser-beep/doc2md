@@ -119,7 +119,7 @@ Content Understanding：视频 (MP4 / MOV / AVI / MKV / WebM 等)、EML、RTF、
 ────────────────────────────────────────
 
 图片描述、PPT 内嵌图说明
-OCR 插件：PDF / DOCX / PPTX / XLSX 内嵌图文字识别（需安装 markitdown-ocr）
+OCR 插件：PDF / DOCX / PPTX / XLSX 内嵌图文字识别（需在依赖中启用 OCR 插件）
 
 ────────────────────────────────────────
 4. 高级选项（「高级设置」）
