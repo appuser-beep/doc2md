@@ -1,0 +1,11 @@
+.venv
+dist
+build
+__pycache__
+*.pyc
+.git
+tests
+*.md
+!README.md
+agent-transcripts
+.cursor

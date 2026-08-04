@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Atom Feed ATOM_TITLE</title>
+  <entry><title>Entry1 ATOM_E1</title><summary>摘要 ATOM_S1</summary></entry>
+  <entry><title>Entry2 ATOM_E2</title><content type="html">&lt;p&gt;内容 ATOM_C2 华北&lt;/p&gt;</content></entry>
+</feed>

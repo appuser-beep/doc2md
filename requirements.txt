@@ -1,0 +1,7 @@
+# 核心与全部可选转换依赖
+markitdown>=0.1.6
+markitdown[pdf,docx,pptx,xlsx,xls,outlook,audio-transcription,youtube-transcription,az-doc-intel,az-content-understanding]>=0.1.6
+customtkinter>=5.2.2
+pyinstaller>=6.3.0
+openai>=1.40.0
+markitdown-ocr>=0.0.1

@@ -1,0 +1,17 @@
+{
+  "title": "JSON01_TITLE",
+  "meta": {
+    "region": "华北",
+    "mark": "JSON01_MARK"
+  },
+  "items": [
+    {
+      "name": "A",
+      "value": 1280
+    },
+    {
+      "name": "Overseas",
+      "value": 430
+    }
+  ]
+}

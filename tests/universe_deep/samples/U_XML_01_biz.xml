@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<report id="1">
+  <title>XML01_TITLE</title>
+  <section name="收入"><item region="华北" value="1280"/><item region="海外" value="430"/></section>
+  <mark>XML01_MARK</mark>
+</report>

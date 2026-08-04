@@ -1,0 +1,23 @@
+{
+  "project": "文档转Markdown",
+  "version": "1.0",
+  "features": [
+    "pdf",
+    "docx",
+    "xlsx"
+  ],
+  "thresholds": {
+    "quality": 0.85,
+    "timeout_sec": 60
+  },
+  "owners": [
+    {
+      "name": "张三",
+      "role": "PM"
+    },
+    {
+      "name": "李四",
+      "role": "Dev"
+    }
+  ]
+}

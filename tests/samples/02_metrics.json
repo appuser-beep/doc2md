@@ -1,0 +1,15 @@
+{
+  "report_name": "季度经营报告",
+  "quarter": "2026-Q2",
+  "metrics": [
+    {"region": "华北", "revenue_wan": 1280, "yoy": 0.12, "note": "重点增长区"},
+    {"region": "华南", "revenue_wan": 960, "yoy": 0.0, "note": "持平"},
+    {"region": "海外", "revenue_wan": 430, "yoy": -0.05, "note": "需复盘"}
+  ],
+  "actions": [
+    "优先跟进重点客户",
+    "复盘渠道转化漏斗",
+    "输出下周行动清单"
+  ],
+  "owner": {"name": "张三", "role": "分析师"}
+}

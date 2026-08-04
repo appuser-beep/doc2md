@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<title>RSS Feed UNIV_RSS_TITLE</title>
+<link>https://example.com/rss</link>
+<description>测试源</description>
+<item>
+  <title>条目1 RSS_ITEM_1</title>
+  <link>https://example.com/1</link>
+  <description><![CDATA[<p>描述 <b>RSS_DESC_1</b> 华北</p>]]></description>
+</item>
+<item>
+  <title>条目2 RSS_ITEM_2</title>
+  <description>RSS_DESC_2 Overseas</description>
+</item>
+</channel></rss>

@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <title>产品周报</title>
+  <style>
+    h1 { color: #c0392b; font-size: 32px; font-family: "微软雅黑"; }
+    h2 { color: #2980b9; font-size: 22px; }
+    .red { color: red; font-weight: bold; }
+    .big { font-size: 28px; }
+    .small { font-size: 10px; color: #999; }
+    table { border-collapse: collapse; }
+    td, th { border: 1px solid #333; padding: 6px; }
+    .hl { background: yellow; }
+  </style>
+</head>
+<body>
+  <h1>Q3 产品周报</h1>
+  <p class="small">内部文档 · 请勿外传</p>
+  <h2>一、本周进展</h2>
+  <p>核心功能 <span class="red">已上线</span>，延迟 <span class="big">2</span> 天。</p>
+  <ul>
+    <li>登录模块重构完成</li>
+    <li>支付链路压测通过</li>
+    <li><span class="hl">仍待修复：发票导出</span></li>
+  </ul>
+  <h2>二、数据表</h2>
+  <table>
+    <tr><th>指标</th><th>本周</th><th>上周</th></tr>
+    <tr><td>DAU</td><td>12,300</td><td>11,800</td></tr>
+    <tr><td>转化率</td><td>3.2%</td><td>2.9%</td></tr>
+  </table>
+  <h2>三、链接与代码</h2>
+  <p>详见 <a href="https://example.com/report">完整报告</a>。</p>
+  <pre><code>def deploy():
+    return "ok"</code></pre>
+  <blockquote>结论：整体可控，优先修发票导出。</blockquote>
+</body>
+</html>
