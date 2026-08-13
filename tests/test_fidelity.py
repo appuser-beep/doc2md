@@ -108,6 +108,34 @@ class TestCleanupTableRepair(unittest.TestCase):
         self.assertIn(":---:", md)
         self.assertIn("---:", md)
 
+    def test_short_sep_full_clean_no_junk_row(self):
+        from cleanup import clean_markdown
+
+        raw = (
+            "| A | B | C |\n"
+            "| --- | --- |\n"
+            "| 1 | 2 | 3 |\n"
+        )
+        md = clean_markdown(raw)
+        lines = [ln for ln in md.splitlines() if ln.startswith("|")]
+        # 不应出现把短分隔补空后当成数据行
+        self.assertFalse(any(ln.count("|") >= 4 and "---" in ln and ln.strip().endswith("|  |") for ln in lines))
+        from cleanup import _split_table_row
+
+        data = [ln for ln in lines if "---" not in ln]
+        self.assertEqual(len(_split_table_row(data[0])), 3)
+        self.assertEqual(len(_split_table_row(data[-1])), 3)
+
+    def test_image_alt_with_bracket_repaired(self):
+        from cleanup import clean_markdown_light
+
+        raw = "![C:\\tmp\\foo]$bar.png](data:image/png;base64,aaa)\n"
+        md = clean_markdown_light(raw)
+        self.assertIn("](data:image/png;base64,aaa)", md)
+        # alt 内不应再残留未转义的 ]
+        alt = md.split("![", 1)[1].split("](", 1)[0]
+        self.assertNotIn("]", alt)
+
 
 class TestExcelFidelity(unittest.TestCase):
     def test_date_percent_currency_and_pipe(self):

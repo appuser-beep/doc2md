@@ -66,6 +66,11 @@ class TestCollapseHelpers(unittest.TestCase):
         row = ["华北", "100", "100"]
         self.assertEqual(_collapse_wide_merge_row(row), row)
 
+    def test_do_not_collapse_all_equal_survey_row(self):
+        # 问卷「是|是|是|是」不得压成一格
+        self.assertEqual(_collapse_wide_merge_row(["是", "是", "是", "是"]), ["是", "是", "是", "是"])
+        self.assertEqual(_collapse_wide_merge_row(["是", "是", "是"]), ["是", "是", "是"])
+
     def test_dedupe_vertical_repeats(self):
         grid = [
             ["时间", "名单", "名单", "名单", "名单"],

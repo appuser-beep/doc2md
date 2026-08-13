@@ -223,17 +223,19 @@ def _collapse_wide_merge_row(row: list[str]) -> list[str]:
 
     例：[时间段, 名单, 名单, 名单, ...] → [时间段, 名单]
     避免值班表类 Excel 转成 8 列重复垃圾表。
+    注意：不把「是|是|是」这类真实等值多列问卷行压成一格。
     """
     if len(row) <= 2:
         return list(row)
     first, rest = row[0], row[1:]
-    # 首列标签 + 右侧全部相同（典型：A 列时间，B:I 合并人员）
-    if len(rest) >= 3 and len(set(rest)) == 1:
+    # 首列标签 + 右侧全部相同，且标签与右侧不同（典型：时段 | 人员…）
+    if (
+        len(rest) >= 3
+        and len(set(rest)) == 1
+        and (first or "").strip() != (rest[0] or "").strip()
+    ):
         return [first, rest[0]]
-    # 整行同一内容（宽标题横幅）
-    nonempty = [c for c in row if c.strip()]
-    if len(nonempty) >= 3 and len(set(nonempty)) == 1:
-        return [nonempty[0]]
+    # 宽标题横幅交给 _guess_title / _peel_banner_rows；此处不再按「整行相同」压列
     return list(row)
 
 

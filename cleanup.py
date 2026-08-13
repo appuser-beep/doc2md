@@ -42,12 +42,15 @@ def _split_table_row(line: str) -> list[str]:
     return cells
 
 
-def _fit_row_width(cells: list[str], width: int) -> list[str]:
-    """列数多于表宽时合并片段。优先合并更短的碎片（如「张|三」）；同分时靠后合并。"""
+def _fit_row_width(cells: list[str], width: int, *, pad: str = "") -> list[str]:
+    """列数多于表宽时合并片段。优先合并更短的碎片（如「张|三」）；同分时靠后合并。
+
+    pad：补齐短行时的填充；分隔行应传 ``---``，避免空串破坏分隔行判定。
+    """
     if width <= 0:
         return cells
     if len(cells) < width:
-        return cells + [""] * (width - len(cells))
+        return cells + [pad] * (width - len(cells))
     if len(cells) == width:
         return cells
 
@@ -153,11 +156,21 @@ def _infer_table_width(rows: list[list[str]]) -> int:
 
 
 def _table_needs_rewrite(rows: list[list[str]]) -> bool:
-    """仅在空表头或过宽行时重写；完好对齐表可跳过，保留 GFM 对齐。"""
+    """空表头、过宽行、或分隔行列数与表头不一致时需要重写。"""
     if len(rows) < 2:
         return False
+    sep_w = 0
+    header_w = 0
+    for r in rows:
+        if _is_sep_row(r):
+            if sep_w <= 0:
+                sep_w = len(r)
+        elif header_w <= 0:
+            header_w = len(r)
     width = _infer_table_width(rows)
     if any(len(r) > width for r in rows if not _is_sep_row(r)):
+        return True
+    if header_w and sep_w and header_w != sep_w:
         return True
     if (
         len(rows) >= 3
@@ -195,7 +208,14 @@ def _clean_table_block(
     width = _infer_table_width(rows)
     if width <= 0:
         width = max(len(r) for r in rows)
-    rows = [_fit_row_width(r, width) for r in rows]
+    fitted: list[list[str]] = []
+    for r in rows:
+        # 分隔行用 --- 补齐，避免短分隔被 pad 空串后变成「假数据行」
+        if _is_sep_row(r):
+            fitted.append(_fit_row_width(r, width, pad="---"))
+        else:
+            fitted.append(_fit_row_width(r, width, pad=""))
+    rows = fitted
 
     for r in rows:
         for i, c in enumerate(r):
@@ -326,6 +346,55 @@ def _rewrite_tables(
     return "\n".join(out)
 
 
+def _repair_md_images(text: str) -> str:
+    """修复 alt 文本含 ] 时把 ![...]...](url) 截断的问题。"""
+    if "![" not in text:
+        return text
+    markers = (
+        "](data:",
+        "](http://",
+        "](https://",
+        "](embedded-image",
+        "](Picture",
+    )
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        start = text.find("![", i)
+        if start < 0:
+            out.append(text[i:])
+            break
+        out.append(text[i:start])
+        close = -1
+        for marker in markers:
+            pos = text.find(marker, start + 2)
+            if pos >= 0 and (close < 0 or pos < close):
+                close = pos
+        if close < 0:
+            out.append(text[start : start + 2])
+            i = start + 2
+            continue
+        alt = text[start + 2 : close]
+        paren = text.find(")", close + 2)
+        if paren < 0:
+            out.append(text[start:])
+            break
+        url = text[close + 2 : paren]
+        alt_safe = (
+            alt.replace("]", "_")
+            .replace("[", "_")
+            .replace("\n", " ")
+            .strip()
+        )
+        # 过长路径 alt：保留文件名
+        if len(alt_safe) > 120 and ("\\" in alt_safe or "/" in alt_safe):
+            alt_safe = Path(alt_safe.replace("\\", "/")).name or "image"
+        out.append(f"![{alt_safe}]({url})")
+        i = paren + 1
+    return "".join(out)
+
+
 def clean_markdown_light(text: str) -> str:
     """轻量清理：保持正文，修复 Word/PPT 空表头与单元格内 |。"""
     if not text:
@@ -334,6 +403,7 @@ def clean_markdown_light(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     # mammoth/markdownify 常把 WORD_FOO 转成 WORD\_FOO
     text = _RE_ESC_UNDERSCORE.sub("_", text)
+    text = _repair_md_images(text)
     text = _rewrite_tables(
         text,
         drop_empty_cols=False,
@@ -351,6 +421,7 @@ def clean_markdown(text: str, *, keep_data_uris: bool = False) -> str:
     text = _RE_NAN.sub("", text)
     text = _RE_UNNAMED.sub("", text)
     text = _RE_ESC_UNDERSCORE.sub("_", text)
+    text = _repair_md_images(text)
 
     # 默认缩短超长 data-uri；keep_data_uris=True 时保留完整内嵌图
     if not keep_data_uris:

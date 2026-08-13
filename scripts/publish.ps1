@@ -9,7 +9,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-$version = "v1.7.10"
+$version = "v1.7.11"
 $repo = "appuser-beep/doc2md"
 $repoUrl = "https://github.com/$repo"
 $releaseUrl = "$repoUrl/releases/latest"

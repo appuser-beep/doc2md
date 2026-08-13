@@ -9,7 +9,7 @@ from typing import BinaryIO, Callable
 
 from cleanup import clean_markdown, clean_markdown_light
 
-APP_VERSION = "1.7.10"
+APP_VERSION = "1.7.11"
 
 _BUILTIN_EXTENSIONS = {
     ".pdf",
