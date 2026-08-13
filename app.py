@@ -228,7 +228,7 @@ class App(ctk.CTk):
         tip_row.grid_columnconfigure(3, weight=0)
         ctk.CTkLabel(
             tip_row,
-            text="提示：颜色/字号不会保留；标题、列表、表格会保留。扫描件需 OCR/Azure；名词解释见「格式说明」。",
+            text="提示：颜色/字号不保留。大模型须选识图型号（如 gpt-4o）；详情见「格式说明」。",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             text_color=COLORS["muted"],
             anchor="w",
@@ -477,7 +477,8 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             frame,
-            text="用于图片描述与 OCR。英文项含义也可在主界面「格式说明 → 名词解释」查看。",
+            text="用于「图片描述」。接口为 OpenAI 兼容协议；模型须支持识图（vision），"
+            "不是任意对话模型。详见「格式说明 → 名词解释 / 常见问题」。",
             font=hint_font,
             text_color=COLORS["muted"],
             anchor="w",
@@ -488,7 +489,7 @@ class App(ctk.CTk):
         enabled_var = tk.BooleanVar(value=cur.enabled)
         ctk.CTkCheckBox(
             frame,
-            text="启用大模型（给图片写文字说明）",
+            text="启用大模型（给图片写文字说明，需识图模型）",
             variable=enabled_var,
             font=bold,
             text_color=COLORS["text"],
@@ -533,9 +534,25 @@ class App(ctk.CTk):
             ).grid(row=r + 1, column=1, sticky="ew", padx=(0, 16), pady=(2, 4))
             return entry
 
-        key_entry = add_row(3, "API 密钥", cur.api_key or "", "即 API Key。可留空，改用环境变量 OPENAI_API_KEY。", show="*")
-        url_entry = add_row(5, "接口地址", cur.base_url or "", "即 Base URL。留空用默认网关；私有部署 / 代理时再填写。")
-        model_entry = add_row(7, "模型名称", cur.model or "gpt-4o", "即 llm_model。需与服务商控制台中的模型名一致，默认 gpt-4o。")
+        key_entry = add_row(
+            3,
+            "API 密钥",
+            cur.api_key or "",
+            "即 API Key。也可留空，改用环境变量 OPENAI_API_KEY。勿把密钥发到网上。",
+            show="*",
+        )
+        url_entry = add_row(
+            5,
+            "接口地址",
+            cur.base_url or "",
+            "即 Base URL（OpenAI 兼容）。留空=默认网关；中转站 / Azure OpenAI / 本地部署再填写。",
+        )
+        model_entry = add_row(
+            7,
+            "模型名称",
+            cur.model or "gpt-4o",
+            "即 llm_model。须支持识图，如 gpt-4o；名称与控制台完全一致。纯文本模型通常无效。",
+        )
 
         ctk.CTkLabel(frame, text="提示词", font=bold, text_color=COLORS["text"], width=120, anchor="nw").grid(
             row=9, column=0, sticky="nw", padx=(16, 8), pady=6
@@ -553,7 +570,7 @@ class App(ctk.CTk):
         prompt_box.insert("1.0", cur.prompt)
         ctk.CTkLabel(
             frame,
-            text="即 llm_prompt。告诉模型如何描述图片，可按业务改成更具体的要求。",
+            text="即 llm_prompt。指导模型如何描述图片（语言、侧重点等），可按业务修改。",
             font=hint_font,
             text_color=COLORS["muted"],
             anchor="w",
@@ -644,7 +661,8 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             frame,
-            text="扫描 PDF、视频、EML 等需在此配置。英文项详见「格式说明 → 名词解释」。",
+            text="此处为微软 Azure 云能力，与「大模型设置」账号不同。"
+            "Endpoint / Key 来自 Azure 门户。详见「格式说明 → 名词解释」。",
             font=hint_font,
             text_color=COLORS["muted"],
             anchor="w",
@@ -693,26 +711,26 @@ class App(ctk.CTk):
             2,
             "文档智能地址",
             cur.docintel_endpoint or "",
-            "即 docintel_endpoint。Azure 控制台中的 Endpoint 网址。",
+            "即 docintel_endpoint。从 Azure 门户复制的 Endpoint，不是普通网站地址。",
         )
         docintel_key = add_row(
             4,
             "文档智能密钥",
             cur.docintel_api_key or "",
-            "即 DocIntel Key。可留空并改用本机 az login 登录。",
+            "即 DocIntel Key。可留空并改用本机 az login；勿泄露密钥。",
             show="*",
         )
         docintel_ver = add_row(
             6,
             "接口版本",
             cur.docintel_api_version or "",
-            "即 docintel_api_version。一般留空用默认即可。",
+            "即 docintel_api_version。多数情况留空即可，除非门户要求指定版本。",
         )
         docintel_types = add_row(
             8,
             "处理文件类型",
             cur.docintel_file_types or "",
-            "即 docintel_file_types。逗号分隔扩展名，如 pdf,docx；留空用默认。",
+            "即 docintel_file_types。逗号分隔扩展名，如 pdf,docx；留空用软件默认列表。",
         )
 
         cu_var = tk.BooleanVar(value=cur.cu_enabled)
@@ -730,20 +748,20 @@ class App(ctk.CTk):
             11,
             "内容理解地址",
             cur.cu_endpoint or "",
-            "即 cu_endpoint。内容理解服务的 Endpoint。",
+            "即 cu_endpoint。内容理解资源的 Endpoint（与文档智能可能不同）。",
         )
         cu_key = add_row(
             13,
             "内容理解密钥",
             cur.cu_api_key or "",
-            "即 CU Key。可留空并用 az login。",
+            "即 CU Key。可留空并用 az login；勿泄露。",
             show="*",
         )
         cu_analyzer = add_row(
             15,
             "分析器编号",
             cur.cu_analyzer_id or "",
-            "即 cu_analyzer_id。Azure 中创建的 Analyzer Id。",
+            "即 cu_analyzer_id。Azure 中创建的 Analyzer Id，须与门户一致。",
         )
         cu_types = add_row(
             17,
@@ -829,7 +847,8 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             frame,
-            text="日常转换通常无需改这里。名词解释见「格式说明」。",
+            text="日常办公一般不用改。窄接口/保留内嵌图等说明见「格式说明」。"
+            "自定义插件仅加载你信任的 .py 文件。",
             font=hint_font,
             text_color=COLORS["muted"],
             anchor="w",

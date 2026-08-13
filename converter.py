@@ -9,7 +9,7 @@ from typing import BinaryIO, Callable
 
 from cleanup import clean_markdown, clean_markdown_light
 
-APP_VERSION = "1.7.9"
+APP_VERSION = "1.7.10"
 
 _BUILTIN_EXTENSIONS = {
     ".pdf",
@@ -124,50 +124,62 @@ HELP_TAB_GLOSSARY = """名词解释（设置里常见英文）
 
 API Key / 密钥
   调用云服务或大模型的通行证，相当于密码。请勿发给他人或提交到公开仓库。
+  也可不填界面，改用本机环境变量 OPENAI_API_KEY。
 
 Base URL / 接口地址
-  大模型服务的访问网址。留空通常走默认网关；使用代理或私有部署时再填写。
+  大模型服务的访问网址（OpenAI 兼容协议）。
+  留空 = 官方默认网关；国内中转、Azure OpenAI、本地 Ollama/vLLM 等需填写对应地址。
 
 llm_model / 模型名称
-  具体用哪一个大模型，例如 gpt-4o。名称需与服务商控制台一致。
+  【重要】不是随便填。本软件主要用模型「看图写说明」，因此需要支持图像输入（多模态 / vision）的模型。
+  推荐：gpt-4o、gpt-4o-mini、gpt-4.1 等带视觉能力的型号。
+  可用：任意 OpenAI 兼容网关里、名称与控制台完全一致、且支持识图的模型。
+  不建议：纯文本对话模型、仅补全模型、名称写错的模型（会报错或无法描述图片）。
 
 llm_prompt / 提示词
-  告诉模型「怎么描述图片」的说明文字。可按业务改成更具体的要求。
+  告诉模型「怎么描述图片」的说明文字，例如要求用中文、列出图表中的数字等。
 
 OCR（光学字符识别）
-  把图片或扫描件里的文字识别成可编辑文本。纯文字 PDF 一般不需要。
+  把图片或扫描件里的文字识别成可编辑文本。纯文字层 PDF 一般不需要。
+  本软件的 OCR 插件需在「大模型设置」中勾选启用（依赖已打包的 OCR 组件）。
 
 Endpoint（终结点 / 接入地址）
-  Azure 服务的专属网址，形如 https://xxxx.cognitiveservices.azure.com/
+  Azure 认知服务的专属网址，形如 https://xxxx.cognitiveservices.azure.com/
+  来自 Azure 门户，不是随便写的网址。
 
 Document Intelligence / 文档智能
   Azure 能力：抽取扫描 PDF、复杂版面、BMP/TIFF 等中的文字与结构。
+  需要有效的 Azure 资源与密钥（或本机 az login）。
 
 docintel_endpoint / docintel_api_version / docintel_file_types
-  文档智能的接入地址、接口版本、处理的文件扩展名（逗号分隔，如 pdf,docx）。
-  留空则使用软件内置默认类型。
+  文档智能的接入地址、接口版本、要交给云端处理的扩展名（逗号分隔，如 pdf,docx）。
+  留空则用软件内置默认类型。
 
 Content Understanding / 内容理解
   Azure 能力：处理视频、邮件 EML、RTF、扩展音频等。
+  同样需要 Azure 资源；与「大模型设置」不是同一套账号。
 
 cu_endpoint / cu_analyzer_id / cu_file_types
-  内容理解的接入地址、分析器编号、文件类型列表。
+  内容理解的接入地址、分析器编号（Analyzer Id）、文件类型列表。
 
 ExifTool
-  第三方小工具，用于读取图片/音频的拍摄时间、设备等元数据。留空会自动查找。
+  第三方小工具，用于读取图片/音频的拍摄时间、设备等元数据。留空会自动查找本机。
 
 样式映射（style map）
   把 Word 段落样式对应到 Markdown 标题等级，例如：
   p[style-name='Heading 1'] => h1
+  日常文档通常不用改。
 
 窄接口模式
-  关闭 Excel / Notebook / ZIP 本地增强，更接近最基础的转换路径，便于对照排查。
+  关闭 Excel / Notebook / ZIP 本地增强，走更基础的转换路径，便于对照排查。
+  普通用户请保持关闭（不勾选）。
 
 保留内嵌图 / keep_data_uris / base64
-  默认会缩短超长图片数据以减小 Markdown 体积；勾选后保留完整图片（文件变大）。
+  默认会缩短超长图片数据以减小 Markdown 体积；勾选后保留完整图片（文件显著变大）。
 
 自定义插件
-  自行编写的 .py 脚本，需提供 register_converters(...) 以扩展转换能力。
+  自行编写的 .py 脚本，须提供 register_converters(...) 以扩展转换能力。
+  仅加载你信任的脚本。
 """
 
 HELP_TAB_SETTINGS = """设置怎么配（建议顺序）
@@ -180,21 +192,27 @@ HELP_TAB_SETTINGS = """设置怎么配（建议顺序）
   • 优先：大模型设置 → 启用 OCR 插件
   • 或：Azure 设置 → 启用文档智能，并填写 Endpoint / Key
 
-3）需要给图片写说明（无障碍读图）
-  • 大模型设置 → 启用大模型，填写 API 密钥与模型名称
+3）需要给图片写说明（读图）
+  • 大模型设置 → 启用大模型
+  • 填写 API 密钥；模型请选「能识图」的（如 gpt-4o），不要用纯文本模型
+  • 若用第三方 / 本地网关，再填 Base URL，模型名须与该网关控制台一致
 
 4）视频、EML、RTF、特殊音频
-  • Azure 设置 → 启用内容理解，填写 cu_endpoint 等
+  • Azure 设置 → 启用内容理解，填写 cu_endpoint 等（需 Azure 账号）
 
 5）高级用户
   • 高级设置：样式映射、ExifTool、自定义插件、窄接口、保留内嵌图
   • 命令行：doc2md-cli --list-plugins 查看已加载插件
 
 配置文件位置（一般无需手改）
-  用户目录下的 .doc2md 文件夹。
+  用户目录下的 .doc2md 文件夹（密钥明文保存，勿分享该目录）。
 """
 
 HELP_TAB_FAQ = """常见问题
+
+Q：大模型设置里随便填一个模型名可以吗？
+A：不可以。需要「OpenAI 兼容接口 + 支持识图（vision）」的模型，
+   且名称与服务商控制台完全一致。默认 gpt-4o 即可；纯文本模型通常无法描述图片。
 
 Q：转换后颜色、字号没了？
 A：Markdown 只保留结构（标题、列表、表格、链接），不保留视觉排版。
@@ -210,6 +228,10 @@ A：扩展名是 .zip，内容可能是 RAR/7z。请用 7-Zip 重新打成真正
 
 Q：输出里图片变成占位符？
 A：默认不落盘二进制图片。勾选「保留内嵌图」可保留 base64；OCR/大模型可补充文字说明。
+
+Q：Azure 和大模型是一回事吗？
+A：不是。大模型设置走 OpenAI 兼容 API（图片描述/OCR 插件）；
+   Azure 设置走微软云端文档智能 / 内容理解，账号与密钥各自独立。
 
 Q：图形版和命令行有何区别？
 A：转换能力相同。图形版方便点选；命令行适合批量与脚本。
