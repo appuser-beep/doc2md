@@ -20,6 +20,8 @@ tests/**/results.json
 tests/production_gate_output/
 tests/l3_l4_output/
 tests/production_gate_results.json
+tests/_*.txt
+tests/_*.md
 
 # 测试二进制样例（体积大，不入库）
 tests/**/*.pdf

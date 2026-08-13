@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from converter import ConversionError, convert_path, precheck_source  # noqa: E402
-from zip_convert import convert_zip_to_markdown, sniff_archive_kind  # noqa: E402
+from zip_convert import (  # noqa: E402
+    convert_zip_to_markdown,
+    decode_zip_member_name,
+    sniff_archive_kind,
+)
 
 SAMPLES = ROOT / "tests" / "zip_cases" / "samples"
 OUTPUT = ROOT / "tests" / "zip_cases" / "output"
@@ -85,6 +89,30 @@ class TestZipConvert(unittest.TestCase):
         md = convert_path(str(self.sample), local_only=False)
         self.assertIn("```java", md)
         self.assertIn("Hello", md)
+
+    def test_decode_gbk_member_name(self):
+        # 模拟 zipfile 把 GBK 字节按 cp437 解成的乱码串
+        original = "档案整理活动立项申请表.docx"
+        mojibake = original.encode("gbk").decode("cp437")
+        fixed = decode_zip_member_name(mojibake, flag_bits=0)
+        self.assertEqual(fixed, original)
+        # UTF-8 标志时保持原样
+        self.assertEqual(decode_zip_member_name("ok/file.txt", flag_bits=0x800), "ok/file.txt")
+
+    def test_gbk_named_zip_roundtrip(self):
+        path = SAMPLES / "gbk_cn_names.zip"
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            info = zipfile.ZipInfo()
+            cn = "档案说明.txt"
+            info.filename = cn.encode("gbk").decode("cp437")
+            info.flag_bits = 0  # 无 UTF-8 标志
+            zf.writestr(info, "档案整理服务活动说明正文\n".encode("utf-8"))
+        path.write_bytes(buf.getvalue())
+        md = convert_zip_to_markdown(path)
+        self.assertIn("档案说明.txt", md)
+        self.assertIn("档案整理服务活动", md)
+        self.assertNotIn("╡", md)
 
 
 if __name__ == "__main__":

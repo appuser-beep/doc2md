@@ -17,60 +17,56 @@ hiddenimports = []
 
 
 for pkg in (
-
     "markitdown",
-
+    "markitdown_ocr",
     "customtkinter",
-
     "magika",
-
     "mammoth",
-
     "pptx",
-
     "openpyxl",
-
     "pdfminer",
-
     "pdfplumber",
-
     "bs4",
-
     "charset_normalizer",
-
     "olefile",
-
     "pydub",
-
     "speech_recognition",
-
     "youtube_transcript_api",
-
     "defusedxml",
-
     "xlrd",
-
     "pandas",
-
 ):
-
     try:
-
         d, b, h = collect_all(pkg)
-
         datas += d
-
         binaries += b
-
         hiddenimports += h
-
-    except Exception:
-
+    except Exception as exc:
+        # OCR 为产品能力；缺失则中止打包，避免「启用 OCR」空转
+        if pkg == "markitdown_ocr":
+            raise SystemExit(
+                "打包失败：未找到 markitdown_ocr。请先安装 requirements.txt 中的 markitdown-ocr。"
+            ) from exc
+        # 其余可选依赖缺失时继续（部分环境无音视频库）
         pass
 
+try:
+    from PyInstaller.utils.hooks import copy_metadata
 
+    datas += copy_metadata("markitdown-ocr")
+    datas += copy_metadata("markitdown")
+except Exception as exc:
+    raise SystemExit(
+        "打包失败：无法收集 markitdown / markitdown-ocr 的 package metadata。"
+    ) from exc
 
 hiddenimports += collect_submodules("markitdown")
+try:
+    hiddenimports += collect_submodules("markitdown_ocr")
+except Exception as exc:
+    raise SystemExit(
+        "打包失败：无法收集 markitdown_ocr 子模块。"
+    ) from exc
 
 common_hidden = [
 

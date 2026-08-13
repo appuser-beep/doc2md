@@ -12,10 +12,14 @@ import customtkinter as ctk
 from converter import (
     APP_VERSION,
     FILE_DIALOG_TYPES,
-    SUPPORT_HELP,
+    HELP_TAB_FAQ,
+    HELP_TAB_FORMATS,
+    HELP_TAB_GLOSSARY,
+    HELP_TAB_SETTINGS,
     ConversionError,
     convert_path,
     default_output_path,
+    is_hard_block_warning,
     postcheck_result,
     precheck_source,
 )
@@ -224,7 +228,7 @@ class App(ctk.CTk):
         tip_row.grid_columnconfigure(3, weight=0)
         ctk.CTkLabel(
             tip_row,
-            text="提示：颜色/字号不会保留；标题、列表、表格会保留。扫描件/视频/EML 等需 Azure；图片描述需大模型。",
+            text="提示：颜色/字号不会保留；标题、列表、表格会保留。扫描件需 OCR/Azure；名词解释见「格式说明」。",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             text_color=COLORS["muted"],
             anchor="w",
@@ -380,9 +384,9 @@ class App(ctk.CTk):
 
     def _show_help(self) -> None:
         win = ctk.CTkToplevel(self)
-        win.title(f"{APP_TITLE} — 格式说明")
-        win.geometry("680x620")
-        win.minsize(560, 480)
+        win.title(f"{APP_TITLE} — 格式说明与名词解释")
+        win.geometry("720x640")
+        win.minsize(600, 500)
         win.transient(self)
         win.grab_set()
         win.configure(fg_color=COLORS["bg"])
@@ -398,18 +402,43 @@ class App(ctk.CTk):
         frame.grid_rowconfigure(0, weight=1)
         frame.grid_columnconfigure(0, weight=1)
 
-        box = ctk.CTkTextbox(
+        tabs = ctk.CTkTabview(
             frame,
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             fg_color=COLORS["preview_bg"],
-            border_color=COLORS["border"],
-            border_width=1,
+            segmented_button_fg_color=COLORS["border"],
+            segmented_button_selected_color=COLORS["accent"],
+            segmented_button_selected_hover_color=COLORS["accent_hover"],
+            segmented_button_unselected_color=COLORS["surface"],
+            segmented_button_unselected_hover_color="#EEF2F7",
             text_color=COLORS["text"],
-            wrap="word",
+            corner_radius=8,
         )
-        box.grid(row=0, column=0, sticky="nsew", padx=12, pady=(12, 8))
-        box.insert("1.0", SUPPORT_HELP)
-        box.configure(state="disabled")
+        tabs.grid(row=0, column=0, sticky="nsew", padx=12, pady=(12, 8))
+        for name in ("支持格式", "名词解释", "设置指南", "常见问题"):
+            tabs.add(name)
+
+        font = ctk.CTkFont(family="Microsoft YaHei UI", size=13)
+        contents = {
+            "支持格式": HELP_TAB_FORMATS,
+            "名词解释": HELP_TAB_GLOSSARY,
+            "设置指南": HELP_TAB_SETTINGS,
+            "常见问题": HELP_TAB_FAQ,
+        }
+        for name, text in contents.items():
+            page = tabs.tab(name)
+            page.grid_rowconfigure(0, weight=1)
+            page.grid_columnconfigure(0, weight=1)
+            box = ctk.CTkTextbox(
+                page,
+                font=font,
+                fg_color=COLORS["preview_bg"],
+                border_width=0,
+                text_color=COLORS["text"],
+                wrap="word",
+            )
+            box.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+            box.insert("1.0", text.strip() + "\n")
+            box.configure(state="disabled")
 
         ctk.CTkButton(
             frame,
@@ -426,7 +455,7 @@ class App(ctk.CTk):
         cur = load_settings()
         win = ctk.CTkToplevel(self)
         win.title("大模型设置")
-        win.geometry("580x520")
+        win.geometry("620x600")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
@@ -444,11 +473,22 @@ class App(ctk.CTk):
 
         font = ctk.CTkFont(family="Microsoft YaHei UI", size=13)
         bold = ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold")
+        hint_font = ctk.CTkFont(family="Microsoft YaHei UI", size=11)
+
+        ctk.CTkLabel(
+            frame,
+            text="用于图片描述与 OCR。英文项含义也可在主界面「格式说明 → 名词解释」查看。",
+            font=hint_font,
+            text_color=COLORS["muted"],
+            anchor="w",
+            wraplength=540,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=16, pady=(12, 4))
 
         enabled_var = tk.BooleanVar(value=cur.enabled)
         ctk.CTkCheckBox(
             frame,
-            text="启用大模型（图片描述等）",
+            text="启用大模型（给图片写文字说明）",
             variable=enabled_var,
             font=bold,
             text_color=COLORS["text"],
@@ -459,7 +499,7 @@ class App(ctk.CTk):
         plugins_var = tk.BooleanVar(value=cur.enable_plugins)
         ctk.CTkCheckBox(
             frame,
-            text="启用 OCR 插件（PDF / Office 内嵌图文字识别）",
+            text="启用 OCR 插件（识别扫描件 / 内嵌图中的文字）",
             variable=plugins_var,
             font=font,
             text_color=COLORS["text"],
@@ -467,9 +507,9 @@ class App(ctk.CTk):
             hover_color=COLORS["accent_hover"],
         ).grid(row=2, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 10))
 
-        def add_row(r: int, label: str, value: str, show: str | None = None):
-            ctk.CTkLabel(frame, text=label, font=bold, text_color=COLORS["text"], width=100, anchor="w").grid(
-                row=r, column=0, sticky="w", padx=(16, 8), pady=6
+        def add_row(r: int, label: str, value: str, hint: str, show: str | None = None):
+            ctk.CTkLabel(frame, text=label, font=bold, text_color=COLORS["text"], width=120, anchor="w").grid(
+                row=r, column=0, sticky="nw", padx=(16, 8), pady=(6, 0)
             )
             entry = ctk.CTkEntry(
                 frame,
@@ -481,15 +521,24 @@ class App(ctk.CTk):
                 show=show or "",
             )
             entry.insert(0, value)
-            entry.grid(row=r, column=1, sticky="ew", padx=(0, 16), pady=6)
+            entry.grid(row=r, column=1, sticky="ew", padx=(0, 16), pady=(6, 0))
+            ctk.CTkLabel(
+                frame,
+                text=hint,
+                font=hint_font,
+                text_color=COLORS["muted"],
+                anchor="w",
+                wraplength=400,
+                justify="left",
+            ).grid(row=r + 1, column=1, sticky="ew", padx=(0, 16), pady=(2, 4))
             return entry
 
-        key_entry = add_row(3, "API Key", cur.api_key or "", show="*")
-        url_entry = add_row(4, "Base URL", cur.base_url or "")
-        model_entry = add_row(5, "llm_model", cur.model or "gpt-4o")
+        key_entry = add_row(3, "API 密钥", cur.api_key or "", "即 API Key。可留空，改用环境变量 OPENAI_API_KEY。", show="*")
+        url_entry = add_row(5, "接口地址", cur.base_url or "", "即 Base URL。留空用默认网关；私有部署 / 代理时再填写。")
+        model_entry = add_row(7, "模型名称", cur.model or "gpt-4o", "即 llm_model。需与服务商控制台中的模型名一致，默认 gpt-4o。")
 
-        ctk.CTkLabel(frame, text="llm_prompt", font=bold, text_color=COLORS["text"], width=100, anchor="nw").grid(
-            row=6, column=0, sticky="nw", padx=(16, 8), pady=6
+        ctk.CTkLabel(frame, text="提示词", font=bold, text_color=COLORS["text"], width=120, anchor="nw").grid(
+            row=9, column=0, sticky="nw", padx=(16, 8), pady=6
         )
         prompt_box = ctk.CTkTextbox(
             frame,
@@ -500,21 +549,20 @@ class App(ctk.CTk):
             border_width=1,
             text_color=COLORS["text"],
         )
-        prompt_box.grid(row=6, column=1, sticky="ew", padx=(0, 16), pady=6)
+        prompt_box.grid(row=9, column=1, sticky="ew", padx=(0, 16), pady=6)
         prompt_box.insert("1.0", cur.prompt)
-
         ctk.CTkLabel(
             frame,
-            text="Key 可留空并改用环境变量 OPENAI_API_KEY；Base URL 留空则使用默认网关；模型默认 gpt-4o。",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            text="即 llm_prompt。告诉模型如何描述图片，可按业务改成更具体的要求。",
+            font=hint_font,
             text_color=COLORS["muted"],
             anchor="w",
-            wraplength=480,
+            wraplength=400,
             justify="left",
-        ).grid(row=7, column=0, columnspan=2, sticky="ew", padx=16, pady=(4, 8))
+        ).grid(row=10, column=1, sticky="ew", padx=(0, 16), pady=(0, 4))
 
         btns = ctk.CTkFrame(frame, fg_color="transparent")
-        btns.grid(row=8, column=0, columnspan=2, sticky="e", padx=16, pady=(8, 16))
+        btns.grid(row=11, column=0, columnspan=2, sticky="e", padx=16, pady=(8, 16))
 
         def on_save() -> None:
             from llm_settings import settings_path
@@ -529,7 +577,11 @@ class App(ctk.CTk):
             )
             save_settings(s)
             self._llm_status.set(llm_status_text(s))
-            messagebox.showinfo(APP_TITLE, f"大模型设置已保存。\n\n{settings_path()}")
+            messagebox.showinfo(
+                APP_TITLE,
+                f"大模型设置已保存。\n\n{settings_path()}\n\n"
+                "提示：API Key 以明文保存在本机配置文件中，请勿把该文件分享给他人。",
+            )
             win.destroy()
 
         ctk.CTkButton(
@@ -560,29 +612,50 @@ class App(ctk.CTk):
         cur = load_azure_settings()
         win = ctk.CTkToplevel(self)
         win.title("Azure 设置")
-        win.geometry("620x680")
-        win.resizable(False, False)
+        win.geometry("700x640")
+        win.minsize(620, 480)
+        win.resizable(True, True)
         win.transient(self)
         win.grab_set()
         win.configure(fg_color=COLORS["bg"])
 
-        frame = ctk.CTkFrame(
+        shell = ctk.CTkFrame(
             win,
             fg_color=COLORS["surface"],
             border_width=1,
             border_color=COLORS["border"],
             corner_radius=8,
         )
-        frame.pack(fill="both", expand=True, padx=16, pady=16)
+        shell.pack(fill="both", expand=True, padx=16, pady=16)
+        shell.grid_rowconfigure(0, weight=1)
+        shell.grid_columnconfigure(0, weight=1)
+
+        frame = ctk.CTkScrollableFrame(
+            shell,
+            fg_color=COLORS["surface"],
+            corner_radius=0,
+        )
+        frame.grid(row=0, column=0, sticky="nsew", padx=4, pady=(4, 0))
         frame.grid_columnconfigure(1, weight=1)
 
         font = ctk.CTkFont(family="Microsoft YaHei UI", size=13)
         bold = ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold")
+        hint_font = ctk.CTkFont(family="Microsoft YaHei UI", size=11)
+
+        ctk.CTkLabel(
+            frame,
+            text="扫描 PDF、视频、EML 等需在此配置。英文项详见「格式说明 → 名词解释」。",
+            font=hint_font,
+            text_color=COLORS["muted"],
+            anchor="w",
+            wraplength=600,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=16, pady=(12, 4))
 
         docintel_var = tk.BooleanVar(value=cur.docintel_enabled)
         ctk.CTkCheckBox(
             frame,
-            text="启用 Document Intelligence（扫描 PDF、BMP/TIFF 等）",
+            text="启用文档智能 Document Intelligence（扫描 PDF、BMP/TIFF 等）",
             variable=docintel_var,
             font=bold,
             text_color=COLORS["text"],
@@ -590,9 +663,9 @@ class App(ctk.CTk):
             hover_color=COLORS["accent_hover"],
         ).grid(row=1, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 6))
 
-        def add_row(r: int, label: str, value: str, show: str | None = None):
-            ctk.CTkLabel(frame, text=label, font=bold, text_color=COLORS["text"], width=120, anchor="w").grid(
-                row=r, column=0, sticky="w", padx=(16, 8), pady=6
+        def add_row(r: int, label: str, value: str, hint: str, show: str | None = None):
+            ctk.CTkLabel(frame, text=label, font=bold, text_color=COLORS["text"], width=140, anchor="w").grid(
+                row=r, column=0, sticky="nw", padx=(16, 8), pady=(6, 0)
             )
             entry = ctk.CTkEntry(
                 frame,
@@ -604,42 +677,83 @@ class App(ctk.CTk):
                 show=show or "",
             )
             entry.insert(0, value)
-            entry.grid(row=r, column=1, sticky="ew", padx=(0, 16), pady=6)
+            entry.grid(row=r, column=1, sticky="ew", padx=(0, 16), pady=(6, 0))
+            ctk.CTkLabel(
+                frame,
+                text=hint,
+                font=hint_font,
+                text_color=COLORS["muted"],
+                anchor="w",
+                wraplength=420,
+                justify="left",
+            ).grid(row=r + 1, column=1, sticky="ew", padx=(0, 16), pady=(2, 2))
             return entry
 
-        docintel_ep = add_row(2, "docintel_endpoint", cur.docintel_endpoint or "")
-        docintel_key = add_row(3, "DocIntel Key", cur.docintel_api_key or "", show="*")
-        docintel_ver = add_row(4, "docintel_api_version", cur.docintel_api_version or "")
-        docintel_types = add_row(5, "docintel_file_types", cur.docintel_file_types or "")
+        docintel_ep = add_row(
+            2,
+            "文档智能地址",
+            cur.docintel_endpoint or "",
+            "即 docintel_endpoint。Azure 控制台中的 Endpoint 网址。",
+        )
+        docintel_key = add_row(
+            4,
+            "文档智能密钥",
+            cur.docintel_api_key or "",
+            "即 DocIntel Key。可留空并改用本机 az login 登录。",
+            show="*",
+        )
+        docintel_ver = add_row(
+            6,
+            "接口版本",
+            cur.docintel_api_version or "",
+            "即 docintel_api_version。一般留空用默认即可。",
+        )
+        docintel_types = add_row(
+            8,
+            "处理文件类型",
+            cur.docintel_file_types or "",
+            "即 docintel_file_types。逗号分隔扩展名，如 pdf,docx；留空用默认。",
+        )
 
         cu_var = tk.BooleanVar(value=cur.cu_enabled)
         ctk.CTkCheckBox(
             frame,
-            text="启用 Content Understanding（视频、EML/RTF、更多音频）",
+            text="启用内容理解 Content Understanding（视频、EML/RTF、更多音频）",
             variable=cu_var,
             font=bold,
             text_color=COLORS["text"],
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
-        ).grid(row=6, column=0, columnspan=2, sticky="w", padx=16, pady=(12, 6))
+        ).grid(row=10, column=0, columnspan=2, sticky="w", padx=16, pady=(12, 6))
 
-        cu_ep = add_row(7, "cu_endpoint", cur.cu_endpoint or "")
-        cu_key = add_row(8, "CU Key", cur.cu_api_key or "", show="*")
-        cu_analyzer = add_row(9, "cu_analyzer_id", cur.cu_analyzer_id or "")
-        cu_types = add_row(10, "cu_file_types", cur.cu_file_types or "")
+        cu_ep = add_row(
+            11,
+            "内容理解地址",
+            cur.cu_endpoint or "",
+            "即 cu_endpoint。内容理解服务的 Endpoint。",
+        )
+        cu_key = add_row(
+            13,
+            "内容理解密钥",
+            cur.cu_api_key or "",
+            "即 CU Key。可留空并用 az login。",
+            show="*",
+        )
+        cu_analyzer = add_row(
+            15,
+            "分析器编号",
+            cur.cu_analyzer_id or "",
+            "即 cu_analyzer_id。Azure 中创建的 Analyzer Id。",
+        )
+        cu_types = add_row(
+            17,
+            "处理文件类型",
+            cur.cu_file_types or "",
+            "即 cu_file_types。逗号分隔，如 mp4,eml,rtf；留空用默认。",
+        )
 
-        ctk.CTkLabel(
-            frame,
-            text="file_types 逗号分隔（如 pdf,docx）；留空使用默认类型。Key 可留空并用 az login。",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
-            text_color=COLORS["muted"],
-            anchor="w",
-            wraplength=520,
-            justify="left",
-        ).grid(row=11, column=0, columnspan=2, sticky="ew", padx=16, pady=(4, 8))
-
-        btns = ctk.CTkFrame(frame, fg_color="transparent")
-        btns.grid(row=12, column=0, columnspan=2, sticky="e", padx=16, pady=(8, 16))
+        btns = ctk.CTkFrame(shell, fg_color="transparent")
+        btns.grid(row=1, column=0, sticky="e", padx=16, pady=(8, 16))
 
         def on_save() -> None:
             from azure_settings import settings_path
@@ -658,7 +772,11 @@ class App(ctk.CTk):
             )
             save_azure_settings(s)
             self._azure_status.set(azure_status_text(s))
-            messagebox.showinfo(APP_TITLE, f"Azure 设置已保存。\n\n{settings_path()}")
+            messagebox.showinfo(
+                APP_TITLE,
+                f"Azure 设置已保存。\n\n{settings_path()}\n\n"
+                "提示：密钥以明文保存在本机配置文件中，请勿把该文件分享给他人。",
+            )
             win.destroy()
 
         ctk.CTkButton(
@@ -689,7 +807,7 @@ class App(ctk.CTk):
         cur = load_advanced_settings()
         win = ctk.CTkToplevel(self)
         win.title("高级设置")
-        win.geometry("640x680")
+        win.geometry("680x720")
         win.resizable(False, False)
         win.transient(self)
         win.grab_set()
@@ -707,36 +825,47 @@ class App(ctk.CTk):
 
         font = ctk.CTkFont(family="Microsoft YaHei UI", size=13)
         bold = ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold")
+        hint_font = ctk.CTkFont(family="Microsoft YaHei UI", size=11)
+
+        ctk.CTkLabel(
+            frame,
+            text="日常转换通常无需改这里。名词解释见「格式说明」。",
+            font=hint_font,
+            text_color=COLORS["muted"],
+            anchor="w",
+            wraplength=580,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", padx=16, pady=(12, 2))
 
         local_var = tk.BooleanVar(value=cur.use_convert_local)
         keep_uri_var = tk.BooleanVar(value=cur.keep_data_uris)
         ctk.CTkCheckBox(
             frame,
-            text="窄接口模式（跳过 Excel / Notebook / ZIP 增强）",
+            text="窄接口模式（跳过 Excel / Notebook / ZIP 本地增强，便于对照排查）",
             variable=local_var,
             font=bold,
             text_color=COLORS["text"],
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
-        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(12, 6))
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=16, pady=(6, 4))
         ctk.CTkCheckBox(
             frame,
-            text="保留内嵌图（输出中保留 base64 图片，文件会变大）",
+            text="保留内嵌图 keep_data_uris（完整保留 base64 图片，Markdown 会变大）",
             variable=keep_uri_var,
             font=font,
             text_color=COLORS["text"],
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
-        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 10))
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 8))
 
         ctk.CTkLabel(
             frame,
             text="Word 样式映射",
             font=bold,
             text_color=COLORS["text"],
-            width=100,
+            width=110,
             anchor="nw",
-        ).grid(row=2, column=0, sticky="nw", padx=(16, 8), pady=6)
+        ).grid(row=3, column=0, sticky="nw", padx=(16, 8), pady=6)
         style_box = ctk.CTkTextbox(
             frame,
             height=100,
@@ -746,19 +875,26 @@ class App(ctk.CTk):
             border_width=1,
             text_color=COLORS["text"],
         )
-        style_box.grid(row=2, column=1, sticky="ew", padx=(0, 16), pady=6)
+        style_box.grid(row=3, column=1, sticky="ew", padx=(0, 16), pady=6)
         style_box.insert("1.0", cur.style_map)
+        ctk.CTkLabel(
+            frame,
+            text="每行一条规则，例如：p[style-name='Heading 1'] => h1",
+            font=hint_font,
+            text_color=COLORS["muted"],
+            anchor="w",
+        ).grid(row=4, column=1, sticky="w", padx=(0, 16), pady=(0, 4))
 
         ctk.CTkLabel(
             frame,
             text="ExifTool 路径",
             font=bold,
             text_color=COLORS["text"],
-            width=100,
+            width=110,
             anchor="w",
-        ).grid(row=3, column=0, sticky="w", padx=(16, 8), pady=6)
+        ).grid(row=5, column=0, sticky="w", padx=(16, 8), pady=6)
         exif_row = ctk.CTkFrame(frame, fg_color="transparent")
-        exif_row.grid(row=3, column=1, sticky="ew", padx=(0, 16), pady=6)
+        exif_row.grid(row=5, column=1, sticky="ew", padx=(0, 16), pady=6)
         exif_row.grid_columnconfigure(0, weight=1)
         exif_entry = ctk.CTkEntry(
             exif_row,
@@ -796,12 +932,21 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             frame,
+            text="留空则自动查找本机 ExifTool；用于读取图片/音频拍摄信息等元数据。",
+            font=hint_font,
+            text_color=COLORS["muted"],
+            anchor="w",
+            wraplength=420,
+        ).grid(row=6, column=1, sticky="w", padx=(0, 16), pady=(0, 4))
+
+        ctk.CTkLabel(
+            frame,
             text="自定义插件",
             font=bold,
             text_color=COLORS["text"],
-            width=100,
+            width=110,
             anchor="nw",
-        ).grid(row=4, column=0, sticky="nw", padx=(16, 8), pady=6)
+        ).grid(row=7, column=0, sticky="nw", padx=(16, 8), pady=6)
         plugin_box = ctk.CTkTextbox(
             frame,
             height=72,
@@ -811,11 +956,11 @@ class App(ctk.CTk):
             border_width=1,
             text_color=COLORS["text"],
         )
-        plugin_box.grid(row=4, column=1, sticky="ew", padx=(0, 16), pady=6)
+        plugin_box.grid(row=7, column=1, sticky="ew", padx=(0, 16), pady=6)
         plugin_box.insert("1.0", cur.custom_plugin_scripts)
 
         plugin_btn_row = ctk.CTkFrame(frame, fg_color="transparent")
-        plugin_btn_row.grid(row=5, column=1, sticky="ew", padx=(0, 16), pady=(0, 4))
+        plugin_btn_row.grid(row=8, column=1, sticky="ew", padx=(0, 16), pady=(0, 4))
 
         def browse_plugin() -> None:
             path = filedialog.askopenfilename(
@@ -861,18 +1006,17 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(
             frame,
-            text="样式映射每行一条，如 p[style-name='Heading 1'] => h1。\n"
-            "自定义插件 .py 须定义 register_converters(markitdown, **kwargs)。\n"
-            "ExifTool 留空则自动查找；CLI：doc2md-cli --list-plugins",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            text="插件 .py 须定义 register_converters(markitdown, **kwargs)。\n"
+            "命令行可执行：doc2md-cli --list-plugins",
+            font=hint_font,
             text_color=COLORS["muted"],
             anchor="w",
-            wraplength=480,
+            wraplength=520,
             justify="left",
-        ).grid(row=6, column=0, columnspan=2, sticky="ew", padx=16, pady=(4, 8))
+        ).grid(row=9, column=0, columnspan=2, sticky="ew", padx=16, pady=(4, 8))
 
         btns = ctk.CTkFrame(frame, fg_color="transparent")
-        btns.grid(row=7, column=0, columnspan=2, sticky="e", padx=16, pady=(8, 16))
+        btns.grid(row=10, column=0, columnspan=2, sticky="e", padx=16, pady=(8, 16))
 
         def on_save() -> None:
             from advanced_settings import settings_path
@@ -946,17 +1090,7 @@ class App(ctk.CTk):
         warn = precheck_source(source)
         if warn and not source.startswith(("http://", "https://")):
             # 伪 ZIP / 明确不支持：直接阻断，避免一直转圈
-            hard_block = any(
-                k in warn
-                for k in (
-                    "实际是 RAR",
-                    "实际是 7z",
-                    "不支持 RAR",
-                    "不支持 7z",
-                    "文件为空",
-                )
-            )
-            if hard_block:
+            if is_hard_block_warning(warn):
                 self._set_status(warn.splitlines()[0][:120], error=True)
                 messagebox.showerror(APP_TITLE, warn)
                 return

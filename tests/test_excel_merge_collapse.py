@@ -76,6 +76,33 @@ class TestCollapseHelpers(unittest.TestCase):
         out = _collapse_filled_merges(grid)
         self.assertEqual(out, [["时间", "名单"], ["周一", "甲"], ["周二", "乙"]])
 
+    def test_collapse_pairwise_duplicate_columns(self):
+        from excel_convert import _collapse_identical_adjacent_columns
+
+        grid = [
+            ["序号", "姓名", "年级专业", "年级专业", "学号", "学号"],
+            ["1", "杨燕", "24大数据1班", "24大数据1班", "202442030144", "202442030144"],
+            ["2", "李四", "23计科", "23计科", "202342030001", "202342030001"],
+        ]
+        out = _collapse_identical_adjacent_columns(grid)
+        self.assertEqual(
+            out,
+            [
+                ["序号", "姓名", "年级专业", "学号"],
+                ["1", "杨燕", "24大数据1班", "202442030144"],
+                ["2", "李四", "23计科", "202342030001"],
+            ],
+        )
+
+    def test_do_not_collapse_distinct_headers_same_values(self):
+        from excel_convert import _collapse_identical_adjacent_columns
+
+        grid = [
+            ["地区", "指标A", "指标B"],
+            ["华北", "100", "100"],
+        ]
+        self.assertEqual(_collapse_identical_adjacent_columns(grid), grid)
+
 
 class TestScheduleConversion(unittest.TestCase):
     @classmethod

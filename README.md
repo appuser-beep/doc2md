@@ -1,6 +1,6 @@
 # 文档转 Markdown
 
-**当前版本：v1.7.2 · Windows 桌面工具**
+**当前版本：v1.7.9 · Windows 桌面工具**
 
 将 PDF、Word、Excel、PPT、网页、Jupyter 笔记本、ZIP 压缩包等常见格式转换为 Markdown，便于阅读、检索与后续处理。
 
@@ -100,7 +100,7 @@ doc2md-cli.exe --list-plugins
 ### 安装
 
 ```powershell
-git clone https://github.com/wluser3362203440/doc2md.git
+git clone https://github.com/appuser-beep/doc2md.git
 cd doc2md
 python -m venv .venv
 .\.venv\Scripts\pip.exe install -r requirements.txt
@@ -180,6 +180,13 @@ Markdown 保留结构与语义，不保留视觉样式；标题、列表、表�
 
 | 版本 | 说明 |
 |------|------|
+| v1.7.9 | 上市加固：仓库/版本一致、ZIP 路径穿越跳过、OCR 打包硬校验、发布禁强制改签 |
+| v1.7.8 | ZIP 中文文件名、Excel 成对合并列折叠（利于大模型理解） |
+| v1.7.7 | 表宽修复、真实业务抽检、设置中文释义、格式说明分页签 |
+| v1.7.6 | 中间列竖线合并、区位货币/科学计数、CLI 扫描 PDF 后检提示 |
+| v1.7.5 | 代码块内表格免误伤、转义幂等、货币符号保留 |
+| v1.7.4 | 表格保真（空表头/单元格竖线）、Excel 日期百分比货币格式 |
+| v1.7.3 | Excel 公式回退、CLI 预检、keep_data_uris 增强路径、排班门禁、插件冻结修复 |
 | v1.7.2 | 保留内嵌图、插件列表、自定义插件、正式化格式说明 |
 | v1.7.0 | 高级设置、CLI、Docker |
 | v1.6.x | Azure / 大模型 GUI、Office 增强与回归测试 |

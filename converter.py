@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 from typing import BinaryIO, Callable
 
 from cleanup import clean_markdown, clean_markdown_light
 
-APP_VERSION = "1.7.2"
+APP_VERSION = "1.7.9"
 
 _BUILTIN_EXTENSIONS = {
     ".pdf",
@@ -91,78 +92,143 @@ FILE_DIALOG_TYPES = [
     ("所有文件", "*.*"),
 ]
 
-SUPPORT_HELP = """格式与能力说明
+HELP_TAB_FORMATS = """支持格式与能力
 版本 {version}
 
-────────────────────────────────────────
-1. 本地内置（安装依赖后可用）
-────────────────────────────────────────
+【本地即可用】
+• Office：Word (.docx)、Excel (.xlsx / .xls)、PowerPoint (.pptx)、Outlook (.msg)
+• 文档：PDF、EPUB、Jupyter Notebook (.ipynb)
+• 数据：HTML、RSS、Atom、CSV、JSON、JSONL、XML、TXT、Markdown
+• 图片：JPG / PNG（可读 EXIF 元数据）
+• 音频：WAV / MP3 / M4A（语音转写，通常需联网）
+• 视频：MP4 音轨转写（建议安装 ffmpeg）
+• 压缩包：标准 ZIP（自动遍历包内文档与源码）
+• 网络：网页、Wikipedia、Bing 搜索、YouTube 字幕
 
-Office：Word (.docx)、Excel (.xlsx / .xls)、PowerPoint (.pptx)、Outlook (.msg)
-文档：PDF、EPUB、Jupyter Notebook (.ipynb)
-数据：HTML、RSS、Atom、CSV、JSON、JSONL、XML、TXT、Markdown
-图片：JPG / PNG（含 EXIF）；音频 WAV / MP3 / M4A（语音转写，需联网）
-视频：MP4 音轨转写（建议本机安装 ffmpeg）
-压缩包：ZIP（遍历包内 Office、PDF、文本与源码）
-网络：通用网页、Wikipedia、Bing 搜索、YouTube 字幕
+【需 Azure 云端】（在「Azure 设置」配置）
+• 文档智能：扫描件 PDF、复杂版面、BMP / TIFF 等
+• 内容理解：视频、EML、RTF、更多音频格式
 
-────────────────────────────────────────
-2. Azure 云端（「Azure 设置」中配置 Endpoint）
-────────────────────────────────────────
+【需大模型】（在「大模型设置」配置）
+• 图片内容描述、PPT 内嵌图说明
+• OCR 插件：识别 PDF / Office 内嵌图中的文字
 
-Document Intelligence：扫描 PDF、复杂版面、BMP / TIFF 等图片
-Content Understanding：视频 (MP4 / MOV / AVI / MKV / WebM 等)、EML、RTF、
-  FLAC / OGG / AAC / WMA 等扩展音频
-
-────────────────────────────────────────
-3. 大模型（「大模型设置」中配置 API）
-────────────────────────────────────────
-
-图片描述、PPT 内嵌图说明
-OCR 插件：PDF / DOCX / PPTX / XLSX 内嵌图文字识别（需在依赖中启用 OCR 插件）
-
-────────────────────────────────────────
-4. 高级选项（「高级设置」）
-────────────────────────────────────────
-
-Word 样式映射：自定义标题与段落转 Markdown 的规则
-ExifTool 路径：读取图片 / 音频元数据（留空则自动查找）
-窄接口模式：不启用 Excel / Notebook / ZIP 本地增强
-保留内嵌图：Markdown 中保留 base64 图片（默认截断以减小体积）
-自定义插件：加载含 register_converters 函数的 .py 脚本
-
-────────────────────────────────────────
-5. 命令行与 Docker
-────────────────────────────────────────
-
-doc2md-cli 文件.pdf -o 输出.md
-type 文件.pdf | doc2md-cli -x pdf
-doc2md-cli --local-only 文件.docx
-doc2md-cli --keep-data-uris 文件.pptx
-doc2md-cli --list-plugins
-
-Docker：docker build -t doc2md .
-  docker run --rm -v %cd%:/data doc2md 文件.pdf -o 文件.md
-
-────────────────────────────────────────
-6. 默认增强（未开启窄接口时）
-────────────────────────────────────────
-
-Excel：合并单元格、宽表折叠、去除无效 NaN
-Notebook：保留代码单元输出
-ZIP：魔数校验、跳过 .class 等二进制、优先源码与文档
-Word：补充页眉、页脚文字
-
-────────────────────────────────────────
-7. 说明与限制
-────────────────────────────────────────
-
-视觉样式（颜色、字号）通常不保留；标题、列表、表格、链接结构会保留。
-扫描件 PDF 需 Azure 或大模型 OCR 方可得到正文。
-ZIP 仅支持标准 ZIP 格式；扩展名为 .zip 但实际为 RAR / 7z 时将提示错误。
-
-不支持：老格式 .doc / .ppt / .xlsb；RAR / 7z 直接转换；Markdown 反向导出。
+【默认本地增强】（未勾选「窄接口模式」时）
+• Excel：合并单元格、宽表整理、日期/百分比/货币可读化
+• Notebook：保留代码输出（含 Markdown / 图片占位）
+• ZIP：校验真实格式、跳过二进制与压缩包内嵌包
+• Word：补充页眉、页脚文字
 """.format(version=APP_VERSION)
+
+HELP_TAB_GLOSSARY = """名词解释（设置里常见英文）
+
+API Key / 密钥
+  调用云服务或大模型的通行证，相当于密码。请勿发给他人或提交到公开仓库。
+
+Base URL / 接口地址
+  大模型服务的访问网址。留空通常走默认网关；使用代理或私有部署时再填写。
+
+llm_model / 模型名称
+  具体用哪一个大模型，例如 gpt-4o。名称需与服务商控制台一致。
+
+llm_prompt / 提示词
+  告诉模型「怎么描述图片」的说明文字。可按业务改成更具体的要求。
+
+OCR（光学字符识别）
+  把图片或扫描件里的文字识别成可编辑文本。纯文字 PDF 一般不需要。
+
+Endpoint（终结点 / 接入地址）
+  Azure 服务的专属网址，形如 https://xxxx.cognitiveservices.azure.com/
+
+Document Intelligence / 文档智能
+  Azure 能力：抽取扫描 PDF、复杂版面、BMP/TIFF 等中的文字与结构。
+
+docintel_endpoint / docintel_api_version / docintel_file_types
+  文档智能的接入地址、接口版本、处理的文件扩展名（逗号分隔，如 pdf,docx）。
+  留空则使用软件内置默认类型。
+
+Content Understanding / 内容理解
+  Azure 能力：处理视频、邮件 EML、RTF、扩展音频等。
+
+cu_endpoint / cu_analyzer_id / cu_file_types
+  内容理解的接入地址、分析器编号、文件类型列表。
+
+ExifTool
+  第三方小工具，用于读取图片/音频的拍摄时间、设备等元数据。留空会自动查找。
+
+样式映射（style map）
+  把 Word 段落样式对应到 Markdown 标题等级，例如：
+  p[style-name='Heading 1'] => h1
+
+窄接口模式
+  关闭 Excel / Notebook / ZIP 本地增强，更接近最基础的转换路径，便于对照排查。
+
+保留内嵌图 / keep_data_uris / base64
+  默认会缩短超长图片数据以减小 Markdown 体积；勾选后保留完整图片（文件变大）。
+
+自定义插件
+  自行编写的 .py 脚本，需提供 register_converters(...) 以扩展转换能力。
+"""
+
+HELP_TAB_SETTINGS = """设置怎么配（建议顺序）
+
+1）日常办公文档（Word / Excel / PPT / 文本 PDF）
+  • 无需改设置，直接转换即可。
+  • 颜色、字号不会进入 Markdown，这是格式本身的限制。
+
+2）扫描件 PDF、图片里的字看不清
+  • 优先：大模型设置 → 启用 OCR 插件
+  • 或：Azure 设置 → 启用文档智能，并填写 Endpoint / Key
+
+3）需要给图片写说明（无障碍读图）
+  • 大模型设置 → 启用大模型，填写 API 密钥与模型名称
+
+4）视频、EML、RTF、特殊音频
+  • Azure 设置 → 启用内容理解，填写 cu_endpoint 等
+
+5）高级用户
+  • 高级设置：样式映射、ExifTool、自定义插件、窄接口、保留内嵌图
+  • 命令行：doc2md-cli --list-plugins 查看已加载插件
+
+配置文件位置（一般无需手改）
+  用户目录下的 .doc2md 文件夹。
+"""
+
+HELP_TAB_FAQ = """常见问题
+
+Q：转换后颜色、字号没了？
+A：Markdown 只保留结构（标题、列表、表格、链接），不保留视觉排版。
+
+Q：扫描件 PDF 几乎没文字？
+A：没有文字层时本地无法“看图识字”。请启用 OCR 或 Azure 文档智能。
+
+Q：Excel 公式变成了 =A1+B1？
+A：文件里没有保存计算结果时，只能保留公式文本。请先在 Excel 中打开并保存后再转。
+
+Q：ZIP 提示实际是 RAR？
+A：扩展名是 .zip，内容可能是 RAR/7z。请用 7-Zip 重新打成真正的 ZIP。
+
+Q：输出里图片变成占位符？
+A：默认不落盘二进制图片。勾选「保留内嵌图」可保留 base64；OCR/大模型可补充文字说明。
+
+Q：图形版和命令行有何区别？
+A：转换能力相同。图形版方便点选；命令行适合批量与脚本。
+
+不支持
+  老格式 .doc / .ppt / .xlsb；直接转 RAR/7z；Markdown 反向导出为 Office。
+"""
+
+SUPPORT_HELP = "\n\n".join(
+    [
+        HELP_TAB_FORMATS.strip(),
+        "──────── 名词解释 ────────",
+        HELP_TAB_GLOSSARY.strip(),
+        "──────── 设置指南 ────────",
+        HELP_TAB_SETTINGS.strip(),
+        "──────── 常见问题 ────────",
+        HELP_TAB_FAQ.strip(),
+    ]
+)
 
 
 class ConversionError(Exception):
@@ -225,6 +291,44 @@ def _convert_options() -> dict:
         return {}
 
 
+def _resolve_keep_data_uris(flag: bool | None) -> bool:
+    if flag is True:
+        return True
+    if flag is False:
+        return False
+    return bool(_convert_options().get("keep_data_uris"))
+
+
+def _merge_convert_opts(keep_data_uris: bool | None = None) -> dict:
+    opts = dict(_convert_options())
+    if keep_data_uris is True:
+        opts["keep_data_uris"] = True
+    elif keep_data_uris is False:
+        opts.pop("keep_data_uris", None)
+    return opts
+
+
+def is_hard_block_warning(warn: str | None) -> bool:
+    """伪压缩包、空文件等应直接失败，不可「继续尝试」。"""
+    if not warn:
+        return False
+    keys = (
+        "实际是 RAR",
+        "实际是 7z",
+        "不支持 RAR",
+        "不支持 7z",
+        "文件为空",
+    )
+    return any(k in warn for k in keys)
+
+
+def enforce_precheck(source: str) -> None:
+    """对硬阻断类预检直接抛错（供 CLI / 窄接口共用）。"""
+    warn = precheck_source(source)
+    if warn and is_hard_block_warning(warn):
+        raise ConversionError(warn)
+
+
 def precheck_source(source: str) -> str | None:
     source = (source or "").strip()
     if not source or source.startswith(("http://", "https://")):
@@ -277,6 +381,19 @@ def _friendly_office_error(path: Path, exc: Exception) -> str | None:
         return f"文件可能已加密，无法直接转换（{ext}）。请先解除密码后重试。"
     if "badzipfile" in low or "not a zip" in low or "file is not a zip" in low:
         if ext == ".zip":
+            try:
+                from zip_convert import sniff_archive_kind
+
+                kind = sniff_archive_kind(path)
+            except Exception:
+                kind = "unknown"
+            if kind == "rar":
+                return (
+                    "扩展名是 .zip，但文件实际是 RAR（文件头 Rar!）。"
+                    "请重新压缩为真正的 ZIP 后再转。"
+                )
+            if kind == "7z":
+                return "扩展名是 .zip，但文件实际是 7z。请改为真正的 ZIP。"
             return "ZIP 文件已损坏或不是有效压缩包。"
         return f"文件已损坏或不是有效的 Office/OpenXML 包（{ext}）。"
     if "notolefile" in low or "not an ole2" in low:
@@ -300,10 +417,20 @@ def _friendly_office_error(path: Path, exc: Exception) -> str | None:
     return None
 
 
+def _meaningful_text_len(text: str) -> int:
+    """去掉常见 Markdown 图片/空白后，估算可读正文长度。"""
+    s = text or ""
+    s = re.sub(r"!\[.*?\]\([^)]*\)", "", s)
+    s = re.sub(r"<!--.*?-->", "", s, flags=re.DOTALL)
+    s = re.sub(r"\s+", "", s)
+    return len(s)
+
+
 def postcheck_result(source: str, text: str) -> str | None:
     stripped = (text or "").strip()
     lower = source.lower()
-    if not stripped:
+    meaningful = _meaningful_text_len(stripped)
+    if not stripped or meaningful == 0:
         if any(lower.endswith(x) for x in (".jpg", ".jpeg", ".png")):
             return (
                 "转换完成，但几乎没有文本。\n"
@@ -315,8 +442,14 @@ def postcheck_result(source: str, text: str) -> str | None:
                 "若是扫描件/纯图片 PDF，需大模型 OCR 或 Azure Document Intelligence。"
             )
         return "转换完成，但结果为空。"
-    if len(stripped) < 8 and any(lower.endswith(x) for x in (".jpg", ".jpeg", ".png")):
+    if meaningful < 8 and any(lower.endswith(x) for x in (".jpg", ".jpeg", ".png")):
         return "图片输出很少，通常仅有元数据；正文 OCR 需额外能力。"
+    # 扫描件常只抽出极少噪声/页眉；阈值过短时同样提示 OCR
+    if lower.endswith(".pdf") and meaningful < 12:
+        return (
+            "转换结果几乎没有可读正文。\n"
+            "若是扫描件/纯图片 PDF，请启用 OCR 插件、大模型 OCR 或 Azure Document Intelligence。"
+        )
     return None
 
 
@@ -382,11 +515,7 @@ def _run_markitdown_local(
     if progress:
         progress("正在加载转换引擎…")
     md = _get_markitdown()
-    opts = _convert_options()
-    if keep_data_uris is True:
-        opts = {**opts, "keep_data_uris": True}
-    elif keep_data_uris is False and "keep_data_uris" in opts:
-        opts = {k: v for k, v in opts.items() if k != "keep_data_uris"}
+    opts = _merge_convert_opts(keep_data_uris)
     try:
         if progress:
             progress(f"正在转换（窄接口）：{path.name}")
@@ -414,6 +543,7 @@ def convert_local_path(
         raise ConversionError(f"文件不存在：{source}")
     if not path.is_file():
         raise ConversionError(f"不是有效文件：{source}")
+    enforce_precheck(str(path))
     if progress:
         progress(f"窄接口模式：{path.name}")
     return _run_markitdown_local(path, progress=progress, keep_data_uris=keep_data_uris)
@@ -460,11 +590,7 @@ def convert_stream(
         stream = buffer
 
     md = _get_markitdown()
-    opts = _convert_options()
-    if keep_data_uris is True:
-        opts = {**opts, "keep_data_uris": True}
-    elif keep_data_uris is False and "keep_data_uris" in opts:
-        opts = {k: v for k, v in opts.items() if k != "keep_data_uris"}
+    opts = _merge_convert_opts(keep_data_uris)
     try:
         if progress:
             progress("正在转换标准输入流…")
@@ -492,6 +618,7 @@ def convert_path(
         raise ConversionError("请选择文件或输入 URL。")
 
     narrow = _should_use_local_only(local_only)
+    keep = _resolve_keep_data_uris(keep_data_uris)
 
     if progress:
         progress("正在初始化转换引擎…")
@@ -504,6 +631,8 @@ def convert_path(
             raise ConversionError(f"文件不存在：{source}")
         if not path.is_file():
             raise ConversionError(f"不是有效文件：{source}")
+
+        enforce_precheck(str(path))
 
         if narrow:
             return convert_local_path(path, progress=progress, keep_data_uris=keep_data_uris)
@@ -518,7 +647,7 @@ def convert_path(
                 from excel_convert import convert_excel_to_markdown
 
                 text = convert_excel_to_markdown(path)
-                text = clean_markdown(text)
+                text = clean_markdown(text, keep_data_uris=keep)
                 if progress:
                     progress("转换完成")
                 return text
@@ -533,7 +662,7 @@ def convert_path(
                 from ipynb_convert import convert_ipynb_to_markdown
 
                 text = convert_ipynb_to_markdown(path)
-                text = clean_markdown(text)
+                text = clean_markdown(text, keep_data_uris=keep)
                 if progress:
                     progress("转换完成")
                 return text
@@ -548,7 +677,7 @@ def convert_path(
                 from zip_convert import convert_zip_to_markdown
 
                 text = convert_zip_to_markdown(path, progress=progress)
-                text = clean_markdown(text)
+                text = clean_markdown(text, keep_data_uris=keep)
                 if progress:
                     progress("转换完成")
                 return text
@@ -564,11 +693,7 @@ def convert_path(
     if progress:
         progress("正在加载转换引擎（首次可能较慢）…")
     md = _get_markitdown()
-    opts = _convert_options()
-    if keep_data_uris is True:
-        opts = {**opts, "keep_data_uris": True}
-    elif keep_data_uris is False and "keep_data_uris" in opts:
-        opts = {k: v for k, v in opts.items() if k != "keep_data_uris"}
+    opts = _merge_convert_opts(keep_data_uris)
     try:
         if progress:
             progress(f"正在转换：{Path(source).name if path else source}")

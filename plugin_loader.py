@@ -10,10 +10,33 @@ from typing import Any
 
 
 def list_plugin_entry_points() -> list[tuple[str, str]]:
-    """返回 (名称, 包路径) 列表。"""
+    """返回 (名称, 包路径) 列表；兼容 PyInstaller 冻结包。"""
     out: list[tuple[str, str]] = []
-    for ep in entry_points(group="markitdown.plugin"):
-        out.append((ep.name, ep.value))
+    seen: set[str] = set()
+    try:
+        eps = entry_points()
+        group = eps.select(group="markitdown.plugin") if hasattr(eps, "select") else eps.get(
+            "markitdown.plugin", []
+        )
+        for ep in group:
+            key = ep.name.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((ep.name, ep.value))
+    except Exception:
+        pass
+
+    # 冻结 exe 时常丢 entry_points 元数据：探测已打包的 OCR 插件
+    if "ocr" not in seen:
+        try:
+            import markitdown_ocr  # noqa: F401
+
+            out.append(("ocr", "markitdown_ocr"))
+            seen.add("ocr")
+        except Exception:
+            pass
+
     out.sort(key=lambda x: x[0].lower())
     return out
 

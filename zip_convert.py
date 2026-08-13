@@ -113,8 +113,6 @@ _SKIP_EXTS = {
     ".ilk",
     ".exp",
     ".map",
-    ".min.js",
-    ".map.js",
     ".woff",
     ".woff2",
     ".ttf",
@@ -140,6 +138,15 @@ _SKIP_EXTS = {
     ".iso",
     ".dmg",
 }
+
+# Path.suffix 只能得到末段；复合扩展名单独用 endswith 判断
+_SKIP_NAME_SUFFIXES = (
+    ".min.js",
+    ".min.css",
+    ".map.js",
+    ".js.map",
+    ".css.map",
+)
 
 _SKIP_DIR_PARTS = {
     "__macosx",
@@ -219,12 +226,75 @@ def _lang_fence(ext: str) -> str:
     }.get(ext.lower(), "")
 
 
+def _zip_name_score(name: str) -> tuple[int, int, int]:
+    """越高越像正常路径：中文多、乱码少。"""
+    cjk = sum(1 for ch in name if "\u4e00" <= ch <= "\u9fff")
+    # CP437 误读 GBK 时常出现 Latin-1 补充/制表符区段
+    mojibake = sum(
+        1
+        for ch in name
+        if (0x80 <= ord(ch) <= 0x2FF)
+        or (0x2500 <= ord(ch) <= 0x257F)
+        or (0x00A0 <= ord(ch) <= 0x00FF)
+    )
+    return (cjk, -mojibake, -len(name))
+
+
+def decode_zip_member_name(name: str, flag_bits: int = 0) -> str:
+    """还原 Windows 下常见「GBK 文件名 + 未置/错置 UTF-8 标志」的 ZIP 条目名。
+
+    真 UTF-8 中文名无法 encode 为 cp437，会原样返回；乱码名可逆解为 GBK。
+    flag_bits 保留兼容调用方，不再作为硬门闩（部分工具会误标 UTF-8）。
+    """
+    del flag_bits  # 兼容旧调用；判断以能否 cp437 回解为准
+    norm = (name or "").replace("\\", "/")
+    if not norm:
+        return norm
+    try:
+        raw = name.encode("cp437")
+    except UnicodeEncodeError:
+        return norm
+    candidates = [norm]
+    for enc in ("utf-8", "gbk", "gb18030"):
+        try:
+            decoded = raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        if decoded not in candidates:
+            candidates.append(decoded)
+    best = max(candidates, key=_zip_name_score)
+    return best.replace("\\", "/")
+
+
+def _is_unsafe_zip_member(name: str) -> bool:
+    """拒绝绝对路径 / 含 .. 的 ZIP 条目，避免写入 Markdown 时误导并降低路径穿越风险。"""
+    n = (name or "").replace("\\", "/").strip()
+    if not n or n.endswith("/"):
+        return True
+    if n.startswith("/") or n.startswith("//"):
+        return True
+    # Windows 盘符路径
+    if len(n) >= 2 and n[1] == ":" and n[0].isalpha():
+        return True
+    parts = [p for p in n.split("/") if p]
+    if any(p == ".." for p in parts):
+        return True
+    if n.startswith("../") or "/../" in n:
+        return True
+    return False
+
+
 def _should_skip_name(name: str) -> bool:
+    if _is_unsafe_zip_member(name):
+        return True
     parts = name.replace("\\", "/").split("/")
     if any(p.lower() in _SKIP_DIR_PARTS for p in parts if p):
         return True
     base = parts[-1] if parts else name
     if not base or base.endswith("/"):
+        return True
+    low = base.lower()
+    if any(low.endswith(sfx) for sfx in _SKIP_NAME_SUFFIXES):
         return True
     if base.startswith("."):
         # 保留常见配置点文件
@@ -369,58 +439,69 @@ def convert_zip_to_markdown(
         raise ValueError("ZIP 已损坏或不是有效压缩包。") from exc
 
     with zf:
-        names = [n for n in zf.namelist() if not n.endswith("/")]
-        candidates: list[str] = []
-        for name in names:
-            if _should_skip_name(name):
-                skipped.append(name)
+        # (archive_key, display_name) — read 必须用原始 key
+        members: list[tuple[str, str]] = []
+        for raw_name in zf.namelist():
+            if raw_name.endswith("/"):
                 continue
-            ext = Path(name).suffix.lower()
+            try:
+                flags = zf.getinfo(raw_name).flag_bits
+            except KeyError:
+                flags = 0
+            display = decode_zip_member_name(raw_name, flags)
+            members.append((raw_name, display))
+
+        candidates: list[tuple[str, str]] = []
+        for raw_name, display in members:
+            if _should_skip_name(display) or _should_skip_name(raw_name):
+                skipped.append(display)
+                continue
+            ext = Path(display).suffix.lower() or Path(raw_name).suffix.lower()
             if ext in _SKIP_EXTS:
-                skipped.append(name)
+                skipped.append(display)
                 continue
-            candidates.append(name)
+            candidates.append((raw_name, display))
 
         if progress:
             progress(f"ZIP 内可处理条目约 {len(candidates)} 个…")
 
-        for idx, name in enumerate(candidates, 1):
+        for idx, (raw_name, display) in enumerate(candidates, 1):
             if converted >= _MAX_FILES:
-                skipped.extend(candidates[idx - 1 :])
+                skipped.extend(d for _, d in candidates[idx - 1 :])
                 parts.append(
                     f"\n> 已达单次转换上限（{_MAX_FILES} 个文件），其余已跳过。"
                 )
                 break
             try:
-                info = zf.getinfo(name)
+                info = zf.getinfo(raw_name)
             except KeyError:
                 continue
             if info.file_size > _MAX_FILE_BYTES:
-                skipped.append(name)
+                skipped.append(display)
                 continue
             if total_bytes + info.file_size > _MAX_TOTAL_BYTES:
                 parts.append(
                     f"\n> 已达解压体积上限（{_MAX_TOTAL_BYTES // 1_000_000}MB），停止继续解析。"
                 )
-                skipped.extend(candidates[idx - 1 :])
+                skipped.extend(d for _, d in candidates[idx - 1 :])
                 break
 
             if progress:
-                progress(f"ZIP（{idx}/{len(candidates)}）：{name}")
+                progress(f"ZIP（{idx}/{len(candidates)}）：{display}")
 
             try:
-                data = zf.read(name)
+                data = zf.read(raw_name)
             except Exception as exc:  # noqa: BLE001
-                parts.append(f"## 文件：`{name}`\n\n_（读取失败：{exc}）_\n")
+                parts.append(f"## 文件：`{display}`\n\n_（读取失败：{exc}）_\n")
                 continue
 
             total_bytes += len(data)
-            body = _convert_member_bytes(name, data, progress=progress)
+            body = _convert_member_bytes(display, data, progress=progress)
             if body is None:
-                skipped.append(name)
+                skipped.append(display)
                 continue
 
-            parts.append(f"## 文件：`{name}`\n\n{body}\n")
+            parts.append(f"## 文件：`{display}`\n\n{body}\n")
             converted += 1
 
     if converted == 0:

@@ -60,7 +60,16 @@ def run_suite(name: str, script: Path, extra: list[str] | None = None) -> SuiteR
 def run_unittest() -> SuiteResult:
     t0 = time.time()
     p = subprocess.run(
-        [_py(), "-m", "unittest", "tests.test_excel_merge_collapse", "tests.test_zip_convert", "-v"],
+        [
+            _py(),
+            "-m",
+            "unittest",
+            "tests.test_excel_merge_collapse",
+            "tests.test_zip_convert",
+            "tests.test_v173_fixes",
+            "tests.test_fidelity",
+            "-v",
+        ],
         cwd=str(ROOT),
         capture_output=True,
         text=True,
@@ -69,7 +78,8 @@ def run_unittest() -> SuiteResult:
     )
     elapsed = round(time.time() - t0, 2)
     ok = p.returncode == 0
-    return SuiteResult("unit_tests", 0 if ok else 1, elapsed, "OK" if ok else "FAILED")
+    detail = "OK" if ok else ((p.stderr or p.stdout or "FAILED")[-200:])
+    return SuiteResult("unit_tests", 0 if ok else 1, elapsed, detail)
 
 
 def _safe_print(msg: str) -> None:
@@ -83,7 +93,15 @@ def _safe_print(msg: str) -> None:
 
 def run_realworld() -> list[CaseResult]:
     from converter import ConversionError, convert_path, precheck_source
+    from make_schedule_fixture import ensure_schedule_staff_xlsx
     from test_helpers import check_must, has_markdown_pipe_table
+
+    # 门禁前强制生成排班样例，避免因 gitignore 缺文件而 SKIP
+    ensure_schedule_staff_xlsx(TESTS / "samples" / "schedule_staff.xlsx")
+
+    fake_rar = TESTS / "samples" / "fake_rar_as_zip.zip"
+    if not fake_rar.exists():
+        fake_rar.write_bytes(b"Rar!\x1a\x07\x00doc2md-fake-rar")
 
     cases: list[tuple[str, str, list[str], bool]] = [
         # id, path, must keywords, optional (skip if missing)
@@ -125,9 +143,9 @@ def run_realworld() -> list[CaseResult]:
         ),
         (
             "RW_precheck_fake_rar",
-            str(Path(r"D:\Java_SE_HomeWork.zip")),
+            str(fake_rar),
             [],
-            True,
+            False,
         ),
     ]
 
@@ -155,7 +173,7 @@ def run_realworld() -> list[CaseResult]:
             continue
 
         try:
-            md = convert_path(str(p))
+            md = convert_path(str(p), local_only=False)
             issues = check_must(md, must)
             if cid == "RW_schedule_xlsx" and not has_markdown_pipe_table(md):
                 issues.append("排班表未输出 Markdown 管道表")
@@ -181,6 +199,39 @@ def run_realworld() -> list[CaseResult]:
     return out
 
 
+def run_l3_l4_suite() -> SuiteResult:
+    """L3/L4：无凭证时标为 CONDITIONAL，避免误报「全绿已测云端」。"""
+    script = TESTS / "run_l3_l4_conditional.py"
+    sr = run_suite("l3_l4", script)
+    results_path = TESTS / "l3_l4_output" / "results.json"
+    if results_path.exists():
+        try:
+            data = json.loads(results_path.read_text(encoding="utf-8"))
+            rows = data.get("results") or []
+            statuses = [r.get("status") for r in rows]
+            if statuses and all(s == "SKIP" for s in statuses) and sr.exit_code == 0:
+                return SuiteResult(
+                    "l3_l4",
+                    0,
+                    sr.elapsed,
+                    f"CONDITIONAL_SKIP ({len(statuses)} 条未配置凭证，未实际验证)",
+                )
+            if any(s == "FAIL" for s in statuses):
+                return SuiteResult("l3_l4", 1, sr.elapsed, sr.detail)
+            if any(s == "PASS" for s in statuses):
+                n_pass = sum(1 for s in statuses if s == "PASS")
+                n_skip = sum(1 for s in statuses if s == "SKIP")
+                return SuiteResult(
+                    "l3_l4",
+                    0,
+                    sr.elapsed,
+                    f"PASS {n_pass} · SKIP {n_skip}",
+                )
+        except Exception:
+            pass
+    return sr
+
+
 def main() -> int:
     print("=== 生产门禁穷举测试 ===")
     started = datetime.now(timezone.utc).astimezone()
@@ -192,7 +243,7 @@ def main() -> int:
         ("office_deep", TESTS / "office_deep" / "run_office_deep.py"),
         ("office_pdf_wave4", TESTS / "office_pdf_wave4" / "run_wave4.py"),
         ("office_full_sweep", TESTS / "office_full_sweep" / "run_full_sweep.py"),
-        ("l3_l4", TESTS / "run_l3_l4_conditional.py"),
+        ("l3_l4", None),
     ]
 
     # 生成 universe 样例（若脚本存在）
@@ -205,10 +256,14 @@ def main() -> int:
     for name, script in suites:
         if name == "unit_tests":
             sr = run_unittest()
+        elif name == "l3_l4":
+            sr = run_l3_l4_suite()
         else:
             sr = run_suite(name, script)  # type: ignore[arg-type]
         suite_results.append(sr)
         mark = "OK" if sr.exit_code == 0 else "FAIL"
+        if "CONDITIONAL" in (sr.detail or ""):
+            mark = "COND"
         _safe_print(f"[{mark}] {name} ({sr.elapsed}s) {sr.detail}")
 
     realworld = run_realworld()
@@ -220,6 +275,7 @@ def main() -> int:
     rw_pass = sum(1 for r in realworld if r.status == "PASS")
     rw_fail = sum(1 for r in realworld if r.status == "FAIL")
     rw_skip = sum(1 for r in realworld if r.status == "SKIP")
+    l3_conditional = any("CONDITIONAL" in (s.detail or "") for s in suite_results if s.name == "l3_l4")
 
     lines = [
         "# 生产门禁测试总报告",
@@ -229,15 +285,20 @@ def main() -> int:
         "",
         "## 套件汇总",
         "",
-        f"- 自动化套件：**{suite_pass}/{len(suite_results)}** 通过",
+        f"- 自动化套件：**{suite_pass}/{len(suite_results)}** 通过（退出码 0）",
         f"- 真实场景：**{rw_pass}** 通过 · **{rw_fail}** 失败 · **{rw_skip}** 跳过",
         "",
         "| 套件 | 结果 | 耗时 | 说明 |",
         "|------|------|------|------|",
     ]
     for s in suite_results:
-        st = "PASS" if s.exit_code == 0 else "FAIL"
-        lines.append(f"| {s.name} | **{st}** | {s.elapsed}s | {s.detail[:80]} |")
+        if s.exit_code != 0:
+            st = "FAIL"
+        elif "CONDITIONAL" in (s.detail or ""):
+            st = "CONDITIONAL"
+        else:
+            st = "PASS"
+        lines.append(f"| {s.name} | **{st}** | {s.elapsed}s | {s.detail[:100]} |")
 
     lines += [
         "",
@@ -258,16 +319,17 @@ def main() -> int:
         "|------|------|",
         "| Word / Excel / PPT / PDF / MSG | office_matrix + exhaust + deep + wave4 + full_sweep |",
         "| HTML / CSV / JSON / RSS / EPUB / IPYNB / ZIP | universe_deep（样例齐全时） |",
-        "| 真实排班表 xlsx | RW_schedule_xlsx |",
+        "| 真实排班表 xlsx | RW_schedule_xlsx（门禁前自动生成样例） |",
         "| ZIP 魔数 / 伪 RAR | unit_tests + RW_precheck |",
-        "| Excel 宽表折叠 | unit_tests + excel_merge |",
-        "| L3 LLM / L4 Azure | l3_l4（无凭证则 SKIP，非 FAIL） |",
+        "| Excel 宽表折叠 / 公式回退 | unit_tests + test_v173_fixes |",
+        "| keep_data_uris / stdin / 插件列表 | test_v173_fixes |",
+        "| L3 LLM / L4 Azure | l3_l4（无凭证则为 CONDITIONAL，非「已验证」） |",
         "",
         "## 使用建议",
         "",
-        "1. **日常发布前**跑本脚本；套件全绿即可发版。",
-        "2. **L3/L4 SKIP** 不代表失败；配置 Key 后再跑 `run_l3_l4_conditional.py`。",
-        "3. **真实业务文件**（如排班表）建议加入 `tests/production_gate_output/` 人工 spot-check。",
+        "1. **日常发布前**跑本脚本；本地套件与真实场景无 FAIL 即可发版。",
+        "2. **L3/L4 CONDITIONAL** 表示云端能力未用本机凭证实测，不代表已通过。",
+        "3. 配置 Key 后再跑 `tests/run_l3_l4_conditional.py` 做真实云端验证。",
         "",
         "## 子报告路径",
         "",
@@ -294,7 +356,13 @@ def main() -> int:
     else:
         lines.append("## 结论")
         lines.append("")
-        lines.append("**全部门禁通过，工具可用于日常办公转换。**")
+        if l3_conditional:
+            lines.append(
+                "**本地转换门禁通过，可用于日常办公转换。"
+                "L3/L4 云端能力尚未用凭证实测（CONDITIONAL）。**"
+            )
+        else:
+            lines.append("**全部门禁通过（含已配置的云端用例），工具可用于日常办公转换。**")
 
     REPORT.write_text("\n".join(lines), encoding="utf-8")
     (TESTS / "production_gate_results.json").write_text(

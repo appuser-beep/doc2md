@@ -2,22 +2,117 @@
 
 from __future__ import annotations
 
+import re
+from datetime import date, datetime, time
 from pathlib import Path
 
 
-def _cell_str(value) -> str:
+def _escape_md_cell(text: str) -> str:
+    """幂等转义单元格内 |。"""
+    s = text or ""
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s) and s[i + 1] == "|":
+            out.append("\\|")
+            i += 2
+            continue
+        if s[i] == "|":
+            out.append("\\|")
+            i += 1
+            continue
+        out.append(s[i])
+        i += 1
+    return "".join(out)
+
+
+def _format_number(value: float, number_format: str | None) -> str:
+    fmt = (number_format or "General").strip()
+    low = fmt.lower()
+    if value != value:  # NaN
+        return ""
+    # 百分比
+    if "%" in fmt:
+        pct = value * 100
+        if abs(pct - round(pct)) < 1e-9:
+            return f"{int(round(pct))}%"
+        return f"{pct:g}%"
+    # 科学计数（格式含 E+ / E- 时强制科学记法，避免 .6g 对中等整数省略指数）
+    if "e+" in low or "e-" in low or re.search(r"0\.0*e", low):
+        return f"{value:.6E}"
+
+    decimals_m = re.search(r"[0#]\.(0+|#+)", fmt)
+    decimals = len(decimals_m.group(1)) if decimals_m else None
+
+    # 货币：¥ ￥ $ € £ 以及 [$¥-804] / [$$-409] 形式
+    currency = None
+    m = re.search(r"\[\$([^\-\]]+)", fmt)
+    if m:
+        raw = m.group(1).strip()
+        if raw in {"¥", "￥", "\u00a5"}:
+            currency = "¥"
+        elif raw:
+            currency = raw[0] if len(raw) <= 2 else raw
+    if currency is None:
+        for sym in ("¥", "￥", "\u00a5", "$", "€", "£"):
+            if sym in fmt or f'"{sym}"' in fmt:
+                currency = "¥" if sym in {"¥", "￥", "\u00a5"} else sym
+                break
+    if currency:
+        d = 2 if decimals is None else decimals
+        return f"{currency}{value:,.{d}f}"
+    # 千分位
+    if "#,##" in fmt or "#,#" in fmt:
+        if decimals is None:
+            if abs(value - round(value)) < 1e-9:
+                return f"{value:,.0f}"
+            return f"{value:,.2f}"
+        return f"{value:,.{decimals}f}"
+    # 固定小数
+    if decimals is not None:
+        return f"{value:.{decimals}f}"
+    if abs(value - int(value)) < 1e-9 and "0.00" not in fmt and ".0" not in low:
+        return str(int(value))
+    return str(value)
+
+
+def _cell_str(value, number_format: str | None = None) -> str:
     if value is None:
         return ""
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, datetime):
+        fmt = (number_format or "").lower()
+        # 纯日期（无时间或时间全 0）且格式不像时间
+        if (
+            value.hour == 0
+            and value.minute == 0
+            and value.second == 0
+            and value.microsecond == 0
+            and not any(tok in fmt for tok in ("h", "时", "分", "s", "am", "pm"))
+        ):
+            return value.strftime("%Y-%m-%d")
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, time):
+        return value.strftime("%H:%M:%S")
     if isinstance(value, float):
-        if value != value:  # NaN
-            return ""
-        if value == int(value):
-            return str(int(value))
-        return str(value)
+        return _escape_md_cell(_format_number(value, number_format))
+    if isinstance(value, int) and not isinstance(value, bool):
+        return _escape_md_cell(_format_number(float(value), number_format))
     s = str(value).strip()
     if s.lower() == "nan":
         return ""
-    return s.replace("\n", "<br>")
+    return _escape_md_cell(s.replace("\n", "<br>"))
+
+
+def _pick_cell_value(cached, formula, number_format: str | None = None) -> str:
+    """优先用已缓存的计算值；没有缓存时保留公式文本，避免整格变空。"""
+    cached_s = _cell_str(cached, number_format)
+    if cached_s:
+        return cached_s
+    return _cell_str(formula, number_format)
 
 
 def _load_grid(path: Path) -> list[tuple[str, list[list[str]]]]:
@@ -25,25 +120,32 @@ def _load_grid(path: Path) -> list[tuple[str, list[list[str]]]]:
     from openpyxl import load_workbook
     from openpyxl.utils import range_boundaries
 
-    wb = load_workbook(path, data_only=True)
+    # data_only=True 在无 Excel 缓存时公式格为 None；再读一份公式本底作回退
+    wb_cached = load_workbook(path, data_only=True)
+    wb_formula = load_workbook(path, data_only=False)
     sheets = []
-    for ws in wb.worksheets:
-        max_r = ws.max_row or 0
-        max_c = ws.max_column or 0
+    for ws_c, ws_f in zip(wb_cached.worksheets, wb_formula.worksheets):
+        max_r = max(ws_c.max_row or 0, ws_f.max_row or 0)
+        max_c = max(ws_c.max_column or 0, ws_f.max_column or 0)
         if max_r == 0 or max_c == 0:
             continue
         grid = [["" for _ in range(max_c)] for _ in range(max_r)]
         for r in range(1, max_r + 1):
             for c in range(1, max_c + 1):
-                grid[r - 1][c - 1] = _cell_str(ws.cell(r, c).value)
+                cell_f = ws_f.cell(r, c)
+                grid[r - 1][c - 1] = _pick_cell_value(
+                    ws_c.cell(r, c).value,
+                    cell_f.value,
+                    cell_f.number_format,
+                )
 
-        for merged in ws.merged_cells.ranges:
+        for merged in ws_f.merged_cells.ranges:
             min_c, min_r, max_c2, max_r2 = range_boundaries(str(merged))
             val = grid[min_r - 1][min_c - 1]
             for r in range(min_r, max_r2 + 1):
                 for c in range(min_c, max_c2 + 1):
                     grid[r - 1][c - 1] = val
-        sheets.append((ws.title, grid))
+        sheets.append((ws_f.title, grid))
     return sheets
 
 
@@ -135,6 +237,31 @@ def _collapse_wide_merge_row(row: list[str]) -> list[str]:
     return list(row)
 
 
+def _collapse_identical_adjacent_columns(grid: list[list[str]]) -> list[list[str]]:
+    """折叠整表中「相邻列内容完全相同」的合并填充列。
+
+    例：| 年级专业 | 年级专业 | 学号 | 学号 | → | 年级专业 | 学号 |
+    表头不同则不折叠（避免把碰巧同值的两指标列压掉）。
+    """
+    if not grid:
+        return grid
+    width = max((len(r) for r in grid), default=0)
+    if width <= 1:
+        return [list(r) for r in grid]
+    padded = [list(r) + [""] * (width - len(r)) for r in grid]
+    keep: list[int] = []
+    i = 0
+    while i < width:
+        j = i + 1
+        while j < width and all(
+            padded[r][i].strip() == padded[r][j].strip() for r in range(len(padded))
+        ):
+            j += 1
+        keep.append(i)
+        i = j
+    return [[padded[r][c] for c in keep] for r in range(len(padded))]
+
+
 def _collapse_filled_merges(grid: list[list[str]]) -> list[list[str]]:
     """折叠横向重复列，并去掉纵向合并导致的连续重复行。"""
     if not grid:
@@ -142,6 +269,7 @@ def _collapse_filled_merges(grid: list[list[str]]) -> list[list[str]]:
     collapsed = [_collapse_wide_merge_row(r) for r in grid]
     width = max((len(r) for r in collapsed), default=0)
     collapsed = [r + [""] * (width - len(r)) for r in collapsed]
+    collapsed = _collapse_identical_adjacent_columns(collapsed)
     out: list[list[str]] = []
     for r in collapsed:
         if out and r == out[-1]:

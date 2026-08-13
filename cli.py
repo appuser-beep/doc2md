@@ -14,6 +14,10 @@ from converter import (
     convert_path,
     convert_stream,
     default_output_path,
+    enforce_precheck,
+    is_hard_block_warning,
+    postcheck_result,
+    precheck_source,
 )
 from plugin_loader import format_plugin_list
 
@@ -92,6 +96,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="不输出进度信息（stderr）",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="忽略软性预检警告（硬阻断如伪 RAR 仍会失败）",
+    )
     return parser
 
 
@@ -139,6 +148,13 @@ def run_cli(argv: list[str] | None = None) -> int:
             return 0
 
         source = args.input.strip()
+        if not source.startswith(("http://", "https://")):
+            # 硬阻断（伪 RAR / 空文件等）始终拦截；软警告默认打印到 stderr
+            enforce_precheck(source)
+            warn = precheck_source(source)
+            if warn and not is_hard_block_warning(warn) and not args.force:
+                print(f"预检：{warn}", file=sys.stderr)
+
         if args.local_only and not source.startswith(("http://", "https://")):
             text = convert_local_path(source, progress=on_progress, keep_data_uris=keep_uris)
         else:
@@ -153,6 +169,9 @@ def run_cli(argv: list[str] | None = None) -> int:
         if not out and not source.startswith(("http://", "https://")):
             out = str(default_output_path(source))
         _write_output(text, out)
+        tip = postcheck_result(source, text)
+        if tip and not args.quiet:
+            print(f"提示：{tip}", file=sys.stderr)
         return 0
     except ConversionError as exc:
         print(str(exc), file=sys.stderr)

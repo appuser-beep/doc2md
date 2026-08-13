@@ -43,14 +43,18 @@ def _convert_output(output: dict) -> list[str]:
 
     if otype in {"execute_result", "display_data"}:
         data = output.get("data") or {}
+        html_md = ""
         if "text/html" in data:
-            html = _join_source(data.get("text/html"))
-            md = _html_to_md(html)
+            html_md = _html_to_md(_join_source(data.get("text/html")))
+            if html_md:
+                bits.append(html_md)
+        # 无可用 HTML 时用 markdown；与图片可并存
+        if not html_md and "text/markdown" in data:
+            md = _join_source(data.get("text/markdown")).strip()
             if md:
                 bits.append(md)
         if "image/png" in data or "image/jpeg" in data:
             bits.append("![Notebook图片](embedded-image)")
-        # 若没有 html，再用 plain
         if not bits and "text/plain" in data:
             plain = _join_source(data.get("text/plain")).strip()
             if plain:
